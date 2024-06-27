@@ -1,3 +1,4 @@
+pub mod type_utils;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -41,6 +42,7 @@ pub struct BlockHeaderWithFullTransaction {
     #[serde(rename(deserialize = "gasUsed"))]
     pub gas_used: String,
     pub hash: String,
+    #[allow(dead_code)]
     pub miner: String, // beneficiary
     #[serde(rename(deserialize = "mixHash"))]
     pub mix_hash: Option<String>,

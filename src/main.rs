@@ -1,51 +1,66 @@
 mod commands;
-pub mod db;
+mod db;
 mod endpoints;
-mod type_utils;
-pub mod types;
+mod types;
 
+use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use ctrlc;
-use std::sync::{Arc, Mutex};
+use log::info;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[derive(Parser)]
-#[command(version, about, long_about = None, arg_required_else_help = true)]
+#[command(version, about, long_about = None)]
 struct Cli {
     /// What mode to run the program in
     #[arg(value_enum)]
     mode: Mode,
+
+    /// Start block number
     #[arg(short, long)]
     start: Option<i64>,
+
+    /// End block number
     #[arg(short, long)]
     end: Option<i64>,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+#[derive(Copy, Clone, PartialEq, Eq, ValueEnum)]
 enum Mode {
     Fix,
     Update,
 }
 
 #[tokio::main]
-async fn main() {
-    let cli = Cli::parse();
-    let recvd_terminate = Arc::new(Mutex::new(false));
-    let fn_should_terminate = Arc::clone(&recvd_terminate);
+async fn main() -> Result<()> {
+    env_logger::init();
 
-    ctrlc::set_handler(move || {
-        println!("Received Ctrl+C");
-        println!("Waiting for current blocks to finish...");
-        let mut terminate = recvd_terminate.lock().unwrap();
-        *terminate = true;
-    })
-    .expect("Error setting Ctrl-C handler");
+    let cli = Cli::parse();
+    let should_terminate = Arc::new(AtomicBool::new(false));
+
+    setup_ctrlc_handler(Arc::clone(&should_terminate))?;
 
     match cli.mode {
         Mode::Fix => {
-            commands::fill_gaps(cli.start, cli.end, fn_should_terminate).await;
+            commands::fill_gaps(cli.start, cli.end, Arc::clone(&should_terminate))
+                .await
+                .context("Failed to fill gaps")?;
         }
         Mode::Update => {
-            commands::update_from(cli.start, cli.end, fn_should_terminate).await;
+            commands::update_from(cli.start, cli.end, Arc::clone(&should_terminate))
+                .await
+                .context("Failed to update")?;
         }
     }
+
+    Ok(())
+}
+
+fn setup_ctrlc_handler(should_terminate: Arc<AtomicBool>) -> Result<()> {
+    ctrlc::set_handler(move || {
+        info!("Received Ctrl+C");
+        info!("Waiting for current blocks to finish...");
+        should_terminate.store(true, Ordering::SeqCst);
+    })
+    .context("Failed to set Ctrl+C handler")
 }
