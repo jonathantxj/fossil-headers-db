@@ -9,6 +9,7 @@ edition = "2021"
 chrono = { version = "0.4.38", features = ["serde"] }
 clap = { version = "4.5.7", features = ["derive"] }
 ctrlc = "3.4.4"
+dotenvy = "0.15.7"
 futures = "0.3.30"
 futures-util = "0.3.30"
 hex = "0.4"

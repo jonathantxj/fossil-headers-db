@@ -7,7 +7,7 @@ use crate::types::BlockHeaderWithFullTransaction;
 
 static CLIENT: Lazy<Client> = Lazy::new(Client::new);
 static NODE_CONNECTION_STRING: Lazy<String> = Lazy::new(|| {
-    std::env::var("NODE_CONNECTION_STRING").expect("NODE_CONNECTION_STRING must be set")
+    dotenvy::var("NODE_CONNECTION_STRING").expect("NODE_CONNECTION_STRING must be set")
 });
 
 #[derive(Deserialize, Debug)]

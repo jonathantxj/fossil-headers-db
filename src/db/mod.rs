@@ -8,15 +8,16 @@ use std::sync::Arc;
 use tokio::sync::OnceCell;
 
 static DB_POOL: OnceCell<Arc<Pool<Postgres>>> = OnceCell::const_new();
+pub const DB_MAX_CONNECTIONS: u32 = 4000;
 
 pub async fn get_db_pool() -> Result<Arc<Pool<Postgres>>> {
     match DB_POOL.get() {
         Some(pool) => Ok(pool.clone()),
         None => {
             let pool = PgPoolOptions::new()
-                .max_connections(5)
+                .max_connections(DB_MAX_CONNECTIONS)
                 .connect(
-                    &std::env::var("DB_CONNECTION_STRING")
+                    &dotenvy::var("DB_CONNECTION_STRING")
                         .expect("DB_CONNECTION_STRING must be set"),
                 )
                 .await

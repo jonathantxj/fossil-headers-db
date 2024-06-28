@@ -9,7 +9,6 @@ use tokio::task;
 use crate::{db, endpoints, types::type_utils};
 
 const MAX_RETRIES: u32 = 5;
-const PARALLEL_REQUESTS: usize = 100;
 
 pub async fn fill_gaps(
     start: Option<i64>,
@@ -88,6 +87,7 @@ async fn get_range_end(end: Option<i64>) -> Result<i64> {
 pub async fn update_from(
     start: Option<i64>,
     end: Option<i64>,
+    size: u32,
     should_terminate: Arc<AtomicBool>,
 ) -> Result<()> {
     db::create_tables()
@@ -100,25 +100,24 @@ pub async fn update_from(
     let last_block = get_last_block(end).await?;
     info!("Range end: {}", last_block);
 
-    update_blocks(first_missing_block, last_block, &should_terminate).await
+    update_blocks(first_missing_block, last_block, size, &should_terminate).await
 }
 
 async fn update_blocks(
     first_missing_block: i64,
     last_block: i64,
+    size: u32,
     should_terminate: &AtomicBool,
 ) -> Result<()> {
     let time_started = Instant::now();
 
-    for n in
-        (first_missing_block..=last_block - PARALLEL_REQUESTS as i64).step_by(PARALLEL_REQUESTS)
-    {
+    for n in (first_missing_block..=last_block - size as i64).step_by(size as usize) {
         if should_terminate.load(Ordering::Relaxed) {
             info!("Termination requested. Stopping update process.");
             break;
         }
 
-        let range_end = (last_block).min(n + PARALLEL_REQUESTS as i64);
+        let range_end = (last_block).min(n + size as i64);
 
         let tasks: Vec<_> = (n..range_end)
             .map(|block_number| task::spawn(process_block(block_number)))

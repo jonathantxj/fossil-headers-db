@@ -201,6 +201,7 @@ dependencies = [
  "chrono",
  "clap",
  "ctrlc",
+ "dotenvy",
  "env_logger",
  "futures",
  "futures-util",

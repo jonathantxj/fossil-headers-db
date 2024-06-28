@@ -3,7 +3,7 @@
 <h3 align="center">Blockheaders/Transactions Tool</h3>
 
   <p align="center">
-    Updates/Fixes gaps in blockheaders DB. Data is queried via RPC calls
+    Tool to maintain Blockheaders/Transactions DB. Data is queried via RPC calls.
 
 <!-- TABLE OF CONTENTS -->
 <details>
@@ -37,8 +37,17 @@ What you would need:
 
 ### Installation
 
-1. Replace the placeholder **database connection string** in _src/db.rs_ with the actual connection string.
-1. Replace the placeholder **rpc endpoint string** in _src/endpoints.rs_ with the actual RPC endpoint string.
+1. Create a .env file in the root folder
+
+   _blockheader_updater/.env_
+
+   ```
+    NODE_CONNECTION_STRING=<node_connection_string>
+    DB_CONNECTION_STRING=<db_connection_string>
+    RUST_LOG=<log_level> [optional]
+
+   ```
+
 1. Clone the repo
    ```sh
    git clone https://github.com/jonathantxj/BlockheadersUpdater.git
@@ -69,15 +78,24 @@ Fetches blockheaders and transaction data via RPC and writes to DB
 - First block number to start updating the database from. (Inclusive)
 - **Default**: Latest block in the database + 1
 
-2. _end <block_number>_
+1. _end <block_number>_
 
 - Last block number to update the database to. (Inclusive)
 - **Default**: Latest block in ethereum chain at the time of running the command
+
+2. _loopsize <num_threads>_
+
+- Max number of threads running at once
+- **Default**: Max functional connections for our DB -- 4000
 
 **Examples:**
 
 ```sh
 cargo run update
+```
+
+```sh
+cargo run update --loopsize 10
 ```
 
 ```sh
@@ -90,6 +108,10 @@ cargo run update --end 19983849
 
 ```sh
 cargo run update --start 19983846 --end 19983849
+```
+
+```sh
+cargo run update --start 19983846 --end 19983849 --loopsize 10
 ```
 
 ### Mode 2 - Fix
@@ -105,7 +127,7 @@ Patches missing blockheaders and transaction data from the DB, retrieving via RP
 - First block number to start checking the database from. (Inclusive)
 - **Default**: 0
 
-2. _end <block_number>_
+1. _end <block_number>_
 
 - Last block number to check the database to. (Inclusive)
 - **Default**: Last entry in the database

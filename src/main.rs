@@ -5,6 +5,7 @@ mod types;
 
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
+use core::cmp::min;
 use log::info;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -23,6 +24,10 @@ struct Cli {
     /// End block number
     #[arg(short, long)]
     end: Option<i64>,
+
+    /// Number of threads (Max = 4000)
+    #[arg(short, long, default_value_t = db::DB_MAX_CONNECTIONS)]
+    loopsize: u32,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, ValueEnum)]
@@ -33,6 +38,7 @@ enum Mode {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
     env_logger::init();
 
     let cli = Cli::parse();
@@ -47,9 +53,14 @@ async fn main() -> Result<()> {
                 .context("Failed to fill gaps")?;
         }
         Mode::Update => {
-            commands::update_from(cli.start, cli.end, Arc::clone(&should_terminate))
-                .await
-                .context("Failed to update")?;
+            commands::update_from(
+                cli.start,
+                cli.end,
+                min(cli.loopsize, db::DB_MAX_CONNECTIONS),
+                Arc::clone(&should_terminate),
+            )
+            .await
+            .context("Failed to update")?;
         }
     }
 
