@@ -25,7 +25,7 @@ struct Cli {
     #[arg(short, long)]
     end: Option<i64>,
 
-    /// Number of threads (Max = 4000)
+    /// Number of threads (Max = 1000)
     #[arg(short, long, default_value_t = db::DB_MAX_CONNECTIONS)]
     loopsize: u32,
 }

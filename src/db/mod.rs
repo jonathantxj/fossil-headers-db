@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::sync::OnceCell;
 
 static DB_POOL: OnceCell<Arc<Pool<Postgres>>> = OnceCell::const_new();
-pub const DB_MAX_CONNECTIONS: u32 = 4000;
+pub const DB_MAX_CONNECTIONS: u32 = 1000;
 
 pub async fn get_db_pool() -> Result<Arc<Pool<Postgres>>> {
     match DB_POOL.get() {
@@ -139,6 +139,7 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
 
     if result.rows_affected() == 0 {
         warn!("Block header already exists: {}", block_header.hash);
+        return Ok(());
     } else {
         info!("Inserted block header: {}", block_header.hash);
     }

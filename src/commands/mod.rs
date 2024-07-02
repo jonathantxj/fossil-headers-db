@@ -124,9 +124,9 @@ async fn update_blocks(
             .collect();
 
         join_all(tasks).await;
-        info!("Written blocks {} - {}", n, range_end);
+        info!("Written blocks {} - {}", n, range_end - 1);
     }
-
+    info!("First block written: {}", first_missing_block);
     info!("Time elapsed: {:?}", time_started.elapsed());
     Ok(())
 }
