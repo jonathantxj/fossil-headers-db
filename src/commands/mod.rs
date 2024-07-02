@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Error, Result};
 use futures_util::future::join_all;
 use log::{error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -111,27 +111,42 @@ async fn update_blocks(
 ) -> Result<()> {
     let time_started = Instant::now();
 
-    for n in (first_missing_block..=last_block - size as i64).step_by(size as usize) {
+    for n in (first_missing_block..=(last_block - size as i64).max(first_missing_block))
+        .step_by(size as usize)
+    {
         if should_terminate.load(Ordering::Relaxed) {
             info!("Termination requested. Stopping update process.");
             break;
         }
 
-        let range_end = (last_block).min(n + size as i64);
+        let range_end = (last_block + 1).min(n + size as i64);
 
         let tasks: Vec<_> = (n..range_end)
             .map(|block_number| task::spawn(process_block(block_number)))
             .collect();
 
-        join_all(tasks).await;
-        info!("Written blocks {} - {}", n, range_end - 1);
+        let all_res = join_all(tasks).await;
+        let has_err = all_res
+            .iter()
+            .any(|join_res| join_res.is_err() || join_res.as_ref().is_ok_and(|res| res.is_err()));
+
+        if has_err {
+            error!("Rerun from block: {}", n);
+            break;
+        }
+        info!(
+            "Written blocks {} - {}. Next block: {}",
+            n,
+            range_end - 1,
+            range_end
+        );
     }
     info!("First block written: {}", first_missing_block);
     info!("Time elapsed: {:?}", time_started.elapsed());
     Ok(())
 }
 
-async fn process_block(block_number: i64) -> Result<()> {
+async fn process_block(block_number: i64) -> Result<(), Error> {
     for i in 0..MAX_RETRIES {
         match endpoints::get_full_block_by_number(block_number).await {
             Ok(block) => match db::write_blockheader(block).await {

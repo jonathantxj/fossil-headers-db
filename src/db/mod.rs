@@ -2,9 +2,12 @@ use crate::types::BlockHeaderWithFullTransaction;
 use anyhow::{Context, Result};
 use chrono::{TimeZone, Utc};
 use log::{info, warn};
+use sqlx::postgres::PgConnectOptions;
+use sqlx::ConnectOptions;
 use sqlx::QueryBuilder;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::OnceCell;
 
 static DB_POOL: OnceCell<Arc<Pool<Postgres>>> = OnceCell::const_new();
@@ -14,12 +17,15 @@ pub async fn get_db_pool() -> Result<Arc<Pool<Postgres>>> {
     match DB_POOL.get() {
         Some(pool) => Ok(pool.clone()),
         None => {
+            let mut conn_options: PgConnectOptions = dotenvy::var("DB_CONNECTION_STRING")
+                .expect("DB_CONNECTION_STRING must be set")
+                .parse()?;
+            conn_options =
+                conn_options.log_slow_statements(log::LevelFilter::Debug, Duration::new(120, 0));
+
             let pool = PgPoolOptions::new()
                 .max_connections(DB_MAX_CONNECTIONS)
-                .connect(
-                    &dotenvy::var("DB_CONNECTION_STRING")
-                        .expect("DB_CONNECTION_STRING must be set"),
-                )
+                .connect_with(conn_options)
                 .await
                 .context("Failed to create database pool")?;
             let arc_pool = Arc::new(pool);
@@ -138,10 +144,16 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
     .context("Failed to insert block header")?;
 
     if result.rows_affected() == 0 {
-        warn!("Block header already exists: {}", block_header.hash);
+        warn!(
+            "Block already exists: -- block number: {}, block hash: {}",
+            block_header.number, block_header.hash
+        );
         return Ok(());
     } else {
-        info!("Inserted block header: {}", block_header.hash);
+        info!(
+            "Inserted block number: {}, block hash: {}",
+            block_header.number, block_header.hash
+        );
     }
 
     // Insert transactions
