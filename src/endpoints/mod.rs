@@ -3,7 +3,7 @@ use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::types::BlockHeaderWithFullTransaction;
+use crate::types::{BlockHeaderWithEmptyTransaction, BlockHeaderWithFullTransaction};
 
 static CLIENT: Lazy<Client> = Lazy::new(Client::new);
 static NODE_CONNECTION_STRING: Lazy<String> = Lazy::new(|| {
@@ -29,13 +29,17 @@ pub async fn get_latest_blocknumber() -> Result<String> {
     let params = RpcRequest {
         jsonrpc: "2.0",
         id: "0",
-        method: "eth_blockNumber",
-        params: Vec::<String>::new(),
+        method: "eth_getBlockByNumber",
+        params: vec!["finalized", "false"],
     };
 
-    make_rpc_call::<_, String>(&params)
+    match make_rpc_call::<_, BlockHeaderWithEmptyTransaction>(&params)
         .await
         .context("Failed to get latest block number")
+    {
+        Ok(blockheader) => Ok(blockheader.number),
+        Err(e) => Err(e),
+    }
 }
 
 pub async fn get_full_block_by_number(number: i64) -> Result<BlockHeaderWithFullTransaction> {

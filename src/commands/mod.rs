@@ -3,12 +3,13 @@ use futures_util::future::join_all;
 use log::{error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::{thread, time};
 use tokio::task;
 
 use crate::{db, endpoints, types::type_utils};
 
 const MAX_RETRIES: u32 = 5;
+const SLEEP_INTERVAL: u64 = 60_000;
 
 pub async fn fill_gaps(
     start: Option<i64>,
@@ -100,7 +101,56 @@ pub async fn update_from(
     let last_block = get_last_block(end).await?;
     info!("Range end: {}", last_block);
 
-    update_blocks(first_missing_block, last_block, size, &should_terminate).await
+    match end {
+        Some(_) => update_blocks(first_missing_block, last_block, size, &should_terminate).await,
+        None => chain_update_blocks(first_missing_block, last_block, size, &should_terminate).await,
+    }
+}
+
+async fn chain_update_blocks(
+    mut first_missing_block: i64,
+    mut last_block: i64,
+    size: u32,
+    should_terminate: &AtomicBool,
+) -> Result<()> {
+    loop {
+        if should_terminate.load(Ordering::Relaxed) {
+            info!("Termination requested. Stopping update process.");
+            break;
+        }
+
+        update_blocks(first_missing_block, last_block, size, should_terminate).await?;
+
+        if should_terminate.load(Ordering::Relaxed) {
+            break;
+        }
+
+        first_missing_block = last_block + 1;
+
+        loop {
+            if should_terminate.load(Ordering::Relaxed) {
+                break;
+            }
+
+            let new_latest_block = last_block + 10;
+            if new_latest_block > last_block {
+                last_block = new_latest_block;
+                info!(
+                    "New latest_block: {}, last block inserted: {}.",
+                    new_latest_block, last_block
+                );
+                break;
+            } else {
+                info!(
+                    "No new block finalized. Latest: {}. Sleeping for {}ms...",
+                    new_latest_block, SLEEP_INTERVAL
+                );
+                thread::sleep(time::Duration::from_millis(SLEEP_INTERVAL));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 async fn update_blocks(
@@ -109,40 +159,41 @@ async fn update_blocks(
     size: u32,
     should_terminate: &AtomicBool,
 ) -> Result<()> {
-    let time_started = Instant::now();
+    info!("{} - {}", first_missing_block, last_block);
 
-    for n in (first_missing_block..=(last_block - size as i64).max(first_missing_block))
-        .step_by(size as usize)
-    {
-        if should_terminate.load(Ordering::Relaxed) {
-            info!("Termination requested. Stopping update process.");
-            break;
+    if first_missing_block <= last_block {
+        for n in (first_missing_block..=(last_block - size as i64).max(first_missing_block))
+            .step_by(size as usize)
+        {
+            if should_terminate.load(Ordering::Relaxed) {
+                info!("Termination requested. Stopping update process.");
+                break;
+            }
+
+            let range_end = (last_block + 1).min(n + size as i64);
+
+            let tasks: Vec<_> = (n..range_end)
+                .map(|block_number| task::spawn(process_block(block_number)))
+                .collect();
+
+            let all_res = join_all(tasks).await;
+            let has_err = all_res.iter().any(|join_res| {
+                join_res.is_err() || join_res.as_ref().is_ok_and(|res| res.is_err())
+            });
+
+            if has_err {
+                error!("Rerun from block: {}", n);
+                break;
+            }
+            info!(
+                "Written blocks {} - {}. Next block: {}",
+                n,
+                range_end - 1,
+                range_end
+            );
         }
-
-        let range_end = (last_block + 1).min(n + size as i64);
-
-        let tasks: Vec<_> = (n..range_end)
-            .map(|block_number| task::spawn(process_block(block_number)))
-            .collect();
-
-        let all_res = join_all(tasks).await;
-        let has_err = all_res
-            .iter()
-            .any(|join_res| join_res.is_err() || join_res.as_ref().is_ok_and(|res| res.is_err()));
-
-        if has_err {
-            error!("Rerun from block: {}", n);
-            break;
-        }
-        info!(
-            "Written blocks {} - {}. Next block: {}",
-            n,
-            range_end - 1,
-            range_end
-        );
     }
-    info!("First block written: {}", first_missing_block);
-    info!("Time elapsed: {:?}", time_started.elapsed());
+
     Ok(())
 }
 
@@ -172,25 +223,25 @@ async fn process_block(block_number: i64) -> Result<(), Error> {
 }
 
 async fn get_first_missing_block(start: Option<i64>) -> Result<i64> {
+    let last_inserted_block = db::get_last_stored_blocknumber()
+        .await
+        .context("[update_from] Error retrieving first_recorded_block")?
+        + 1;
+
     Ok(match start {
         Some(s) => s,
-        None => {
-            db::get_last_stored_blocknumber()
-                .await
-                .context("[update_from] Error retrieving first_recorded_block")?
-                + 1
-        }
+        None => last_inserted_block,
     })
 }
 
 async fn get_last_block(end: Option<i64>) -> Result<i64> {
+    let latest_block_hex = endpoints::get_latest_blocknumber()
+        .await
+        .context("Failed to get latest block number")?;
+    let latest_block = type_utils::convert_hex_string_to_i64(&latest_block_hex);
+
     Ok(match end {
-        Some(s) => s,
-        None => {
-            let latest_block_hex = endpoints::get_latest_blocknumber()
-                .await
-                .context("Failed to get latest block number")?;
-            type_utils::convert_hex_string_to_i64(&latest_block_hex)
-        }
+        Some(s) => s.min(latest_block),
+        None => latest_block,
     })
 }
