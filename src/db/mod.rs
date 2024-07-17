@@ -26,8 +26,7 @@ pub async fn get_db_pool() -> Result<Arc<Pool<Postgres>>> {
             let pool = PgPoolOptions::new()
                 .max_connections(DB_MAX_CONNECTIONS)
                 .connect_with(conn_options)
-                .await
-                .context("Failed to create database pool")?;
+                .await?;
             let arc_pool = Arc::new(pool);
             match DB_POOL.set(arc_pool.clone()) {
                 Ok(_) => Ok(arc_pool),
@@ -38,7 +37,7 @@ pub async fn get_db_pool() -> Result<Arc<Pool<Postgres>>> {
 }
 
 pub async fn create_tables() -> Result<()> {
-    let pool = get_db_pool().await.context("Failed to get database pool")?;
+    let pool = get_db_pool().await?;
     sqlx::query(include_str!("./sql/blockheaders_table.sql"))
         .execute(&*pool)
         .await
@@ -84,8 +83,8 @@ pub async fn find_first_gap(start: i64, end: i64) -> Result<Option<i64>> {
 }
 
 pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> Result<()> {
-    let pool = get_db_pool().await.context("Failed to get database pool")?;
-    let mut tx = pool.begin().await.context("Failed to start transaction")?;
+    let pool = get_db_pool().await?;
+    let mut tx = pool.begin().await?;
 
     // Insert block header
     let result = sqlx::query(

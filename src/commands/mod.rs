@@ -8,8 +8,9 @@ use tokio::task;
 
 use crate::{db, endpoints, types::type_utils};
 
-const MAX_RETRIES: u32 = 5;
+const MAX_RETRIES: u32 = 10;
 const SLEEP_INTERVAL: u64 = 60_000;
+const TIMEOUT: u64 = 300;
 
 pub async fn fill_gaps(
     start: Option<i64>,
@@ -33,24 +34,24 @@ pub async fn fill_gaps(
 
 async fn fill_missing_blocks(
     mut range_start_pointer: i64,
-    range_end: i64,
+    search_end: i64,
     should_terminate: &AtomicBool,
 ) -> Result<()> {
-    while !should_terminate.load(Ordering::Relaxed) {
-        match db::find_first_gap(range_start_pointer, range_end).await? {
+    let mut range_end_pointer: i64 = search_end;
+    while !should_terminate.load(Ordering::Relaxed) && range_start_pointer <= range_end_pointer {
+        range_end_pointer = search_end.min(range_start_pointer + 100_000);
+        match db::find_first_gap(range_start_pointer, range_end_pointer).await? {
             Some(block_number) => {
                 info!("[fill_gaps] Found missing block number: {}", block_number);
                 if process_missing_block(block_number, &mut range_start_pointer).await? {
                     continue;
                 }
-                return Ok(());
             }
             None => {
                 info!(
                     "[fill_gaps] No missing values found from {} to {}",
-                    range_start_pointer, range_end
+                    range_start_pointer, range_end_pointer
                 );
-                return Ok(());
             }
         }
     }
@@ -59,7 +60,7 @@ async fn fill_missing_blocks(
 
 async fn process_missing_block(block_number: i64, range_start_pointer: &mut i64) -> Result<bool> {
     for i in 0..MAX_RETRIES {
-        match endpoints::get_full_block_by_number(block_number).await {
+        match endpoints::get_full_block_by_number(block_number, Some(TIMEOUT)).await {
             Ok(block) => {
                 db::write_blockheader(block).await?;
                 *range_start_pointer = block_number + 1;
@@ -95,20 +96,20 @@ pub async fn update_from(
         .await
         .context("Failed to create tables")?;
 
-    let first_missing_block = get_first_missing_block(start).await?;
-    info!("First missing block: {}", first_missing_block);
+    let range_start = get_first_missing_block(start).await?;
+    info!("Range start: {}", range_start);
 
     let last_block = get_last_block(end).await?;
     info!("Range end: {}", last_block);
 
     match end {
-        Some(_) => update_blocks(first_missing_block, last_block, size, &should_terminate).await,
-        None => chain_update_blocks(first_missing_block, last_block, size, &should_terminate).await,
+        Some(_) => update_blocks(range_start, last_block, size, &should_terminate).await,
+        None => chain_update_blocks(range_start, last_block, size, &should_terminate).await,
     }
 }
 
 async fn chain_update_blocks(
-    mut first_missing_block: i64,
+    mut range_start: i64,
     mut last_block: i64,
     size: u32,
     should_terminate: &AtomicBool,
@@ -119,13 +120,13 @@ async fn chain_update_blocks(
             break;
         }
 
-        update_blocks(first_missing_block, last_block, size, should_terminate).await?;
+        update_blocks(range_start, last_block, size, should_terminate).await?;
 
         if should_terminate.load(Ordering::Relaxed) {
             break;
         }
 
-        first_missing_block = last_block + 1;
+        range_start = last_block + 1;
 
         loop {
             if should_terminate.load(Ordering::Relaxed) {
@@ -154,16 +155,13 @@ async fn chain_update_blocks(
 }
 
 async fn update_blocks(
-    first_missing_block: i64,
+    range_start: i64,
     last_block: i64,
     size: u32,
     should_terminate: &AtomicBool,
 ) -> Result<()> {
-    info!("{} - {}", first_missing_block, last_block);
-
-    if first_missing_block <= last_block {
-        for n in (first_missing_block..=(last_block - size as i64).max(first_missing_block))
-            .step_by(size as usize)
+    if range_start <= last_block {
+        for n in (range_start..=(last_block - size as i64).max(range_start)).step_by(size as usize)
         {
             if should_terminate.load(Ordering::Relaxed) {
                 info!("Termination requested. Stopping update process.");
@@ -199,7 +197,7 @@ async fn update_blocks(
 
 async fn process_block(block_number: i64) -> Result<(), Error> {
     for i in 0..MAX_RETRIES {
-        match endpoints::get_full_block_by_number(block_number).await {
+        match endpoints::get_full_block_by_number(block_number, Some(TIMEOUT)).await {
             Ok(block) => match db::write_blockheader(block).await {
                 Ok(_) => {
                     if i > 0 {
@@ -235,7 +233,7 @@ async fn get_first_missing_block(start: Option<i64>) -> Result<i64> {
 }
 
 async fn get_last_block(end: Option<i64>) -> Result<i64> {
-    let latest_block_hex = endpoints::get_latest_blocknumber()
+    let latest_block_hex = endpoints::get_latest_blocknumber(Some(TIMEOUT))
         .await
         .context("Failed to get latest block number")?;
     let latest_block = type_utils::convert_hex_string_to_i64(&latest_block_hex);

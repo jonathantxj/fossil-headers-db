@@ -32,7 +32,6 @@ pub struct Transaction {
 }
 
 #[derive(Debug, Deserialize)]
-
 #[allow(dead_code)]
 pub struct BlockHeaderWithEmptyTransaction {
     pub author: String,

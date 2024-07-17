@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 use reqwest::Client;
@@ -25,7 +27,7 @@ struct RpcRequest<'a, T> {
     params: T,
 }
 
-pub async fn get_latest_blocknumber() -> Result<String> {
+pub async fn get_latest_blocknumber(timeout: Option<u64>) -> Result<String> {
     let params = RpcRequest {
         jsonrpc: "2.0",
         id: "0",
@@ -33,7 +35,7 @@ pub async fn get_latest_blocknumber() -> Result<String> {
         params: vec!["finalized", "false"],
     };
 
-    match make_rpc_call::<_, BlockHeaderWithEmptyTransaction>(&params)
+    match make_rpc_call::<_, BlockHeaderWithEmptyTransaction>(&params, timeout)
         .await
         .context("Failed to get latest block number")
     {
@@ -42,7 +44,10 @@ pub async fn get_latest_blocknumber() -> Result<String> {
     }
 }
 
-pub async fn get_full_block_by_number(number: i64) -> Result<BlockHeaderWithFullTransaction> {
+pub async fn get_full_block_by_number(
+    number: i64,
+    timeout: Option<u64>,
+) -> Result<BlockHeaderWithFullTransaction> {
     let params = RpcRequest {
         jsonrpc: "2.0",
         id: "0",
@@ -50,21 +55,31 @@ pub async fn get_full_block_by_number(number: i64) -> Result<BlockHeaderWithFull
         params: vec![format!("0x{:x}", number), true.to_string()],
     };
 
-    make_rpc_call::<_, BlockHeaderWithFullTransaction>(&params)
-        .await
-        .context("Failed to get full block by number")
+    make_rpc_call::<_, BlockHeaderWithFullTransaction>(&params, timeout).await
 }
 
-async fn make_rpc_call<T: Serialize, R: for<'de> Deserialize<'de>>(params: &T) -> Result<R> {
-    let response = CLIENT
-        .post(NODE_CONNECTION_STRING.as_str())
-        .json(params)
-        .send()
-        .await
-        .context("Failed to send request")?
-        .json::<RpcResponse<R>>()
-        .await
-        .context("Failed to parse response")?;
+async fn make_rpc_call<T: Serialize, R: for<'de> Deserialize<'de>>(
+    params: &T,
+    timeout: Option<u64>,
+) -> Result<R> {
+    let raw_response = match timeout {
+        Some(seconds) => {
+            CLIENT
+                .post(NODE_CONNECTION_STRING.as_str())
+                .timeout(Duration::from_secs(seconds))
+                .json(params)
+                .send()
+                .await
+        }
+        None => {
+            CLIENT
+                .post(NODE_CONNECTION_STRING.as_str())
+                .json(params)
+                .send()
+                .await
+        }
+    };
+    let response = raw_response?.json::<RpcResponse<R>>().await?;
 
     Ok(response.result)
 }
