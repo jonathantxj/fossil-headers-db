@@ -1,12 +1,15 @@
 mod commands;
 mod db;
 mod endpoints;
+mod fossil_mmr;
+mod router;
 mod types;
 
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use core::cmp::min;
-use log::info;
+use futures::future::join;
+use log::{info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -43,26 +46,62 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
     let should_terminate = Arc::new(AtomicBool::new(false));
+    let terminate_clone = should_terminate.clone();
 
     setup_ctrlc_handler(Arc::clone(&should_terminate))?;
 
-    match cli.mode {
-        Mode::Fix => {
-            commands::fill_gaps(cli.start, cli.end, Arc::clone(&should_terminate))
+    // let router = tokio::spawn(async move {
+    //     router::initialize_router(should_terminate.clone()).await
+    // });
+
+    // let updater = tokio::spawn(async move {
+    //     match cli.mode {
+    //         Mode::Fix => {
+    //             commands::fill_gaps(cli.start, cli.end, Arc::clone(&terminate_clone)).await
+    //         }
+    //         Mode::Update => {
+    //             commands::update_from(
+    //                 cli.start,
+    //                 cli.end,
+    //                 min(cli.loopsize, db::DB_MAX_CONNECTIONS),
+    //                 Arc::clone(&terminate_clone),
+    //             )
+    //             .await
+    //         }
+    //     }
+    // });
+
+    let router = async {
+        let res = router::initialize_router(should_terminate.clone()).await;
+        match res {
+            Ok(()) => info!("Router task completed"),
+            Err(e) => warn!("Router task failed: {:?}", e),
+        };
+    };
+
+    let updater = async {
+        let res = match cli.mode {
+            Mode::Fix => {
+                commands::fill_gaps(cli.start, cli.end, Arc::clone(&terminate_clone)).await
+            }
+            Mode::Update => {
+                commands::update_from(
+                    cli.start,
+                    cli.end,
+                    min(cli.loopsize, db::DB_MAX_CONNECTIONS),
+                    Arc::clone(&terminate_clone),
+                )
                 .await
-                .context("Failed to fill gaps")?;
-        }
-        Mode::Update => {
-            commands::update_from(
-                cli.start,
-                cli.end,
-                min(cli.loopsize, db::DB_MAX_CONNECTIONS),
-                Arc::clone(&should_terminate),
-            )
-            .await
-            .context("Failed to update")?;
-        }
-    }
+            }
+        };
+
+        match res {
+            Ok(()) => info!("Updater task completed"),
+            Err(e) => warn!("Updater task failed: {:?}", e),
+        };
+    };
+
+    let _ = join(router, updater).await;
 
     Ok(())
 }

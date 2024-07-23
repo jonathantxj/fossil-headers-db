@@ -1,3 +1,4 @@
+use crate::types::BlockDetails;
 use crate::types::BlockHeaderWithFullTransaction;
 use anyhow::{Context, Result};
 use chrono::{TimeZone, Utc};
@@ -192,7 +193,7 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
         let result = query
             .execute(&mut *tx)
             .await
-            .context("Failed to insert transactions")?; // Changed this line
+            .context("Failed to insert transactions")?;
 
         info!(
             "Inserted {} transactions for block {}",
@@ -203,6 +204,24 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
 
     tx.commit().await.context("Failed to commit transaction")?;
     Ok(())
+}
+
+pub async fn get_blockheaders(start_blocknumber: i64) -> Result<Vec<BlockDetails>> {
+    let pool = get_db_pool().await?;
+    let result: Vec<BlockDetails> = sqlx::query_as(
+        r#"
+        SELECT block_hash, number FROM blockheaders
+            WHERE number >= $1
+            ORDER BY number ASC
+            LIMIT 1
+        "#,
+    )
+    .bind(start_blocknumber)
+    .fetch_all(&*pool)
+    .await
+    .context("Failed to get blockheaders")?;
+
+    Ok(result)
 }
 
 // Helper functions

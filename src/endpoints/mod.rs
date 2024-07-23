@@ -1,9 +1,8 @@
-use std::time::Duration;
-
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 use crate::types::{BlockHeaderWithEmptyTransaction, BlockHeaderWithFullTransaction};
 

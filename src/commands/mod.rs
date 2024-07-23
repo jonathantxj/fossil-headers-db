@@ -1,15 +1,18 @@
-use anyhow::{Context, Error, Result};
+use anyhow::{Context, Result};
 use futures_util::future::join_all;
 use log::{error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use std::{thread, time};
 use tokio::task;
 
-use crate::{db, endpoints, types::type_utils};
+use crate::{db, endpoints, fossil_mmr, types::type_utils};
 
 const MAX_RETRIES: u32 = 10;
-const SLEEP_INTERVAL: u64 = 60_000;
+
+// Seconds
+const SLEEP_INTERVAL: u64 = 60;
 const TIMEOUT: u64 = 300;
 
 pub async fn fill_gaps(
@@ -64,13 +67,10 @@ async fn process_missing_block(block_number: i64, range_start_pointer: &mut i64)
             Ok(block) => {
                 db::write_blockheader(block).await?;
                 *range_start_pointer = block_number + 1;
-                info!(
-                    "[fill_gaps] Successfully wrote block {} after {} retries",
-                    block_number, i
-                );
+                info!("[fill_gaps] Successfully wrote block {block_number} after {i} retries");
                 return Ok(true);
             }
-            Err(e) => warn!("[fill_gaps] Error retrieving block {}: {}", block_number, e),
+            Err(e) => warn!("[fill_gaps] Error retrieving block {block_number}: {e}"),
         }
     }
     error!("[fill_gaps] Error with block number {}", block_number);
@@ -120,7 +120,8 @@ async fn chain_update_blocks(
             break;
         }
 
-        update_blocks(range_start, last_block, size, should_terminate).await?;
+        update_blocks(range_start, range_start + 1, size, should_terminate).await?;
+        fossil_mmr::update_mmr(should_terminate).await?;
 
         if should_terminate.load(Ordering::Relaxed) {
             break;
@@ -133,7 +134,7 @@ async fn chain_update_blocks(
                 break;
             }
 
-            let new_latest_block = last_block + 10;
+            let new_latest_block = range_start + 1;
             if new_latest_block > last_block {
                 last_block = new_latest_block;
                 info!(
@@ -143,10 +144,10 @@ async fn chain_update_blocks(
                 break;
             } else {
                 info!(
-                    "No new block finalized. Latest: {}. Sleeping for {}ms...",
+                    "No new block finalized. Latest: {}. Sleeping for {}s...",
                     new_latest_block, SLEEP_INTERVAL
                 );
-                thread::sleep(time::Duration::from_millis(SLEEP_INTERVAL));
+                thread::sleep(time::Duration::from_secs(SLEEP_INTERVAL));
             }
         }
     }
@@ -195,26 +196,26 @@ async fn update_blocks(
     Ok(())
 }
 
-async fn process_block(block_number: i64) -> Result<(), Error> {
+async fn process_block(block_number: i64) -> Result<()> {
     for i in 0..MAX_RETRIES {
         match endpoints::get_full_block_by_number(block_number, Some(TIMEOUT)).await {
             Ok(block) => match db::write_blockheader(block).await {
                 Ok(_) => {
                     if i > 0 {
                         info!(
-                            "[update_from] Successfully wrote block {} after {} retries",
-                            block_number, i
+                            "[update_from] Successfully wrote block {block_number} after {i} retries"
                         );
                     }
                     return Ok(());
                 }
-                Err(e) => warn!("[update_from] Error writing block {}: {}", block_number, e),
+                Err(e) => warn!("[update_from] Error writing block {block_number}: {e}"),
             },
             Err(e) => warn!(
                 "[update_from] Error retrieving block {}: {}",
                 block_number, e
             ),
         }
+        tokio::time::sleep(Duration::from_secs(60)).await;
     }
     error!("[update_from] Error with block number {}", block_number);
     Err(anyhow::anyhow!("Failed to process block {}", block_number))
