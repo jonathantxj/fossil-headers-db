@@ -324,3 +324,13 @@ async fn fix_gas(tx_hash: TxHash) -> Result<()> {
         tx_hash.transaction_hash
     ))
 }
+
+pub async fn migrate() -> Result<()> {
+    loop {
+        match db::migrate_transactions().await {
+            Ok(()) => return Ok(()),
+            Err(e) => {warn!("Error migrating: {e}")}
+        }
+        tokio::time::sleep(Duration::from_secs(60)).await;
+    }
+}

@@ -103,6 +103,26 @@ pub async fn get_hashes(start: i64, end: i64) -> Result<Vec<TxHash>> {
     Ok(result)
 }
 
+pub async fn migrate_transactions() -> Result<()> {
+    let pool = get_db_pool().await?;
+    // sqlx::query(include_str!("./sql/migration/copy_deleted_record.sql"))
+    //     .execute(&*pool)
+    //     .await?;
+    
+    // sqlx::query(include_str!("./sql/migration/delete_trigger.sql"))
+    //     .execute(&*pool)
+    //     .await?;
+
+    sqlx::query(include_str!("./sql/migration/delete_batch.sql"))
+        .execute(&*pool)
+        .await?;
+    sqlx::query(include_str!("./sql/migration/loop.sql"))
+        .execute(&*pool)
+        .await?;
+
+    Ok(())
+}
+
 pub async fn fix_gas(transaction: Transaction) -> Result<()> {
     let pool = get_db_pool().await?;
     let res = sqlx::query(
@@ -135,7 +155,7 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
     // Insert block header
     let result = sqlx::query(
         r#"
-        INSERT INTO blockheaders (
+        INSERT INTO blockheaders2 (
             block_hash, number, gas_limit, gas_used, nonce,
             transaction_root, receipts_root, state_root
         )
@@ -152,8 +172,7 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
     .bind(&block_header.receipts_root)
     .bind(&block_header.state_root)
     .execute(&mut *tx) // Changed this line
-    .await
-    .context("Failed to insert block header")?;
+    .await?;
 
     if result.rows_affected() == 0 {
         // warn!(
@@ -171,7 +190,7 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
     // Insert transactions
     if !block_header.transactions.is_empty() {
         let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
-            "INSERT INTO transactions (
+            "INSERT INTO transactions2 (
                 block_number, transaction_hash,
                 transaction_index, from_addr, to_addr, value, gas_price, max_priority_fee_per_gas, 
                 max_fee_per_gas, gas, chain_id
@@ -201,8 +220,7 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
         let query = query_builder.build();
         let result = query
             .execute(&mut *tx)
-            .await
-            .context("Failed to insert transactions")?;
+            .await?;
 
         info!(
             "Inserted {} transactions for block {}",

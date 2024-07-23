@@ -8,7 +8,7 @@ mod types;
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use core::cmp::min;
-use futures::future::join;
+
 use log::{info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -38,6 +38,7 @@ enum Mode {
     Fix,
     Update,
     Gas,
+    Migrate,
 }
 
 #[tokio::main]
@@ -80,7 +81,7 @@ async fn main() -> Result<()> {
     //     };
     // };
 
-    let updater = async {
+    let _updater = async {
         let res = match cli.mode {
             Mode::Fix => {
                 commands::fill_gaps(cli.start, cli.end, Arc::clone(&terminate_clone)).await
@@ -103,6 +104,7 @@ async fn main() -> Result<()> {
                 )
                 .await
             }
+            Mode::Migrate => commands::migrate().await,
         };
 
         match res {
