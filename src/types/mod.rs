@@ -42,7 +42,7 @@ pub struct BlockHeaderWithEmptyTransaction {
     #[serde(rename(deserialize = "stateRoot"))]
     pub state_root: String,
     #[serde(rename(deserialize = "transactionsRoot"))]
-    pub transactions_root: String
+    pub transactions_root: String,
 }
 
 #[derive(Debug, Deserialize)]

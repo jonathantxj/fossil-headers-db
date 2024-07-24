@@ -1,4 +1,4 @@
-use anyhow::{Result};
+use anyhow::Result;
 use axum::{
     debug_handler,
     extract::Path,

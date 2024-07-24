@@ -2,10 +2,8 @@ use crate::router::handlers::{get_mmr_latest, get_mmr_proof};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{sync::Arc, time::Duration};
 
-use anyhow::{Result};
-use axum::{
-    routing::get, Router,
-};
+use anyhow::Result;
+use axum::{routing::get, Router};
 
 use log::info;
 

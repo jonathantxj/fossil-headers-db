@@ -3,7 +3,7 @@ use accumulators::{
     mmr::{AppendResult, Proof, MMR},
     store::sqlite::SQLiteStore,
 };
-use anyhow::{Result};
+use anyhow::Result;
 use chrono::{TimeZone, Utc};
 use lazy_static::lazy_static;
 use log::{debug, error, info};

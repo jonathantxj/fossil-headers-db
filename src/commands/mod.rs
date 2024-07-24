@@ -162,8 +162,7 @@ async fn update_blocks(
     should_terminate: &AtomicBool,
 ) -> Result<()> {
     if range_start <= last_block {
-        for n in (range_start..=(last_block - size as i64).max(range_start)).step_by(size as usize)
-        {
+        for n in (range_start..=last_block.max(range_start)).step_by(size as usize) {
             if should_terminate.load(Ordering::Relaxed) {
                 info!("Termination requested. Stopping update process.");
                 break;
