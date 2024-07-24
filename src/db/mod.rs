@@ -1,5 +1,7 @@
 use crate::types::BlockDetails;
 use crate::types::BlockHeaderWithFullTransaction;
+use crate::types::Transaction;
+use crate::types::TxHash;
 use anyhow::{Context, Result};
 use log::{info, warn};
 use sqlx::postgres::PgConnectOptions;
@@ -80,6 +82,49 @@ pub async fn find_first_gap(start: i64, end: i64) -> Result<Option<i64>> {
     .context("Failed to find first gap")?;
 
     Ok(result.map(|r| r.0))
+}
+
+pub async fn get_hashes(start: i64, end: i64) -> Result<Vec<TxHash>> {
+    let pool = get_db_pool().await?;
+    let result: Vec<TxHash> = sqlx::query_as(
+        r#"
+        SELECT block_number, transaction_hash FROM transactions
+            WHERE block_number BETWEEN $1 AND $2
+            AND gas = gas_price
+            LIMIT 100
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&*pool)
+    .await
+    .context("Failed to get hashes")?;
+
+    Ok(result)
+}
+
+pub async fn fix_gas(transaction: Transaction) -> Result<()> {
+    let pool = get_db_pool().await?;
+    let res = sqlx::query(
+        r#"
+        UPDATE transactions
+        SET gas = $1
+        WHERE transaction_hash = $2 AND block_number = $3
+        "#,
+    )
+    .bind(transaction.gas)
+    .bind(&transaction.hash)
+    .bind(&transaction.block_number)
+    .execute(&*pool)
+    .await?;
+    if res.rows_affected() > 0 {
+        info!(
+            "Fixed gas for record {} - {}",
+            &transaction.block_number, &transaction.hash
+        );
+    }
+
+    Ok(())
 }
 
 pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> Result<()> {

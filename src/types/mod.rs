@@ -69,6 +69,12 @@ pub struct BlockDetails {
     pub number: i64,
 }
 
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct TxHash {
+    pub block_number: String,
+    pub transaction_hash: String,
+}
+
 #[derive(Clone, Serialize)]
 pub struct Update {
     pub latest_blocknumber: i64,

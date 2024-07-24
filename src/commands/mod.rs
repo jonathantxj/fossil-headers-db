@@ -7,6 +7,7 @@ use std::time::Duration;
 use std::{thread, time};
 use tokio::task;
 
+use crate::types::TxHash;
 use crate::{db, endpoints, fossil_mmr, types::type_utils};
 
 const MAX_RETRIES: u32 = 10;
@@ -242,4 +243,84 @@ async fn get_last_block(end: Option<i64>) -> Result<i64> {
         Some(s) => s.min(latest_block),
         None => latest_block,
     })
+}
+
+pub async fn gas(
+    range_start: i64,
+    last_block: i64,
+    size: u32,
+    should_terminate: Arc<AtomicBool>,
+) -> Result<()> {
+    if range_start <= last_block {
+        for n in (range_start..=last_block.max(range_start)).step_by(size as usize) {
+            if should_terminate.load(Ordering::Relaxed) {
+                info!("Termination requested. Stopping update process.");
+                break;
+            }
+
+            let range_end = (last_block + 1).min(n + size as i64);
+
+            let hashes = db::get_hashes(n, range_end).await?;
+
+            info!("wrong hashes: {:#?}", hashes);
+
+            let tasks: Vec<_> = hashes
+                .into_iter()
+                .map(|hash| task::spawn(fix_gas(hash)))
+                .collect();
+
+            let all_res = join_all(tasks).await;
+            let has_err = all_res.iter().any(|join_res| {
+                join_res.is_err() || join_res.as_ref().is_ok_and(|res| res.is_err())
+            });
+
+            if has_err {
+                error!("Rerun from block: {}", n);
+                break;
+            }
+            info!(
+                "Fixed blocks {} - {}. Next block: {}",
+                n,
+                range_end - 1,
+                range_end
+            );
+        }
+    }
+
+    Ok(())
+}
+
+async fn fix_gas(tx_hash: TxHash) -> Result<()> {
+    for i in 0..MAX_RETRIES {
+        match endpoints::get_transaction_by_hash(&tx_hash.transaction_hash, Some(TIMEOUT)).await {
+            Ok(transaction) => match db::fix_gas(transaction).await {
+                Ok(_) => {
+                    if i > 0 {
+                        info!(
+                            "[update_from] Successfully fixed transaction {} - {} after {i} retries", tx_hash.block_number, tx_hash.transaction_hash
+                        );
+                    }
+                    return Ok(());
+                }
+                Err(e) => warn!(
+                    "[update_from] Error writing transaction {} - {}: {e}",
+                    tx_hash.block_number, tx_hash.transaction_hash
+                ),
+            },
+            Err(e) => warn!(
+                "[update_from] Error retrieving block {} - {}: {e}",
+                tx_hash.block_number, tx_hash.transaction_hash
+            ),
+        }
+        tokio::time::sleep(Duration::from_secs(60)).await;
+    }
+    error!(
+        "[update_from] Error with transaction {} - {}",
+        tx_hash.block_number, tx_hash.transaction_hash
+    );
+    Err(anyhow::anyhow!(
+        "Failed to process transaction {} - {}",
+        tx_hash.block_number,
+        tx_hash.transaction_hash
+    ))
 }

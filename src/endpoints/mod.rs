@@ -4,7 +4,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use crate::types::{BlockHeaderWithEmptyTransaction, BlockHeaderWithFullTransaction};
+use crate::types::{BlockHeaderWithEmptyTransaction, BlockHeaderWithFullTransaction, Transaction};
 
 static CLIENT: Lazy<Client> = Lazy::new(Client::new);
 static NODE_CONNECTION_STRING: Lazy<String> = Lazy::new(|| {
@@ -55,6 +55,17 @@ pub async fn get_full_block_by_number(
     };
 
     make_rpc_call::<_, BlockHeaderWithFullTransaction>(&params, timeout).await
+}
+
+pub async fn get_transaction_by_hash(hash: &String, timeout: Option<u64>) -> Result<Transaction> {
+    let params = RpcRequest {
+        jsonrpc: "2.0",
+        id: "0",
+        method: "eth_getTransactionByHash",
+        params: vec![hash],
+    };
+
+    make_rpc_call::<_, Transaction>(&params, timeout).await
 }
 
 async fn make_rpc_call<T: Serialize, R: for<'de> Deserialize<'de>>(

@@ -37,6 +37,7 @@ struct Cli {
 enum Mode {
     Fix,
     Update,
+    Gas,
 }
 
 #[tokio::main]
@@ -71,13 +72,13 @@ async fn main() -> Result<()> {
     //     }
     // });
 
-    let router = async {
-        let res = router::initialize_router(should_terminate.clone()).await;
-        match res {
-            Ok(()) => info!("Router task completed"),
-            Err(e) => warn!("Router task failed: {:?}", e),
-        };
-    };
+    // let router = async {
+    //     let res = router::initialize_router(should_terminate.clone()).await;
+    //     match res {
+    //         Ok(()) => info!("Router task completed"),
+    //         Err(e) => warn!("Router task failed: {:?}", e),
+    //     };
+    // };
 
     let updater = async {
         let res = match cli.mode {
@@ -93,15 +94,25 @@ async fn main() -> Result<()> {
                 )
                 .await
             }
+            Mode::Gas => {
+                commands::gas(
+                    cli.start.unwrap_or_else(|| 0),
+                    cli.end.unwrap_or_else(|| 0),
+                    min(cli.loopsize, db::DB_MAX_CONNECTIONS),
+                    Arc::clone(&terminate_clone),
+                )
+                .await
+            }
         };
 
         match res {
             Ok(()) => info!("Updater task completed"),
             Err(e) => warn!("Updater task failed: {:?}", e),
         };
-    };
+    }
+    .await;
 
-    let _ = join(router, updater).await;
+    // let _ = join(router, updater).await;
 
     Ok(())
 }
