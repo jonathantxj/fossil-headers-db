@@ -325,9 +325,9 @@ async fn fix_gas(tx_hash: TxHash) -> Result<()> {
     ))
 }
 
-pub async fn migrate() -> Result<()> {
+pub async fn migrate(should_terminate: &Arc<AtomicBool>) -> Result<()> {
     loop {
-        match db::migrate_transactions().await {
+        match db::migrate_transactions(&should_terminate).await {
             Ok(()) => return Ok(()),
             Err(e) => {warn!("Error migrating: {e}")}
         }

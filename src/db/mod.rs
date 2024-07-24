@@ -1,3 +1,5 @@
+use crate::types::type_utils::convert_hex_string_to_i64;
+use crate::types::type_utils::convert_i64_to_hex_string;
 use crate::types::BlockDetails;
 use crate::types::BlockHeaderWithFullTransaction;
 use crate::types::Transaction;
@@ -8,6 +10,8 @@ use sqlx::postgres::PgConnectOptions;
 use sqlx::ConnectOptions;
 use sqlx::QueryBuilder;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::OnceCell;
@@ -103,7 +107,7 @@ pub async fn get_hashes(start: i64, end: i64) -> Result<Vec<TxHash>> {
     Ok(result)
 }
 
-pub async fn migrate_transactions() -> Result<()> {
+pub async fn migrate_transactions(should_terminate: &Arc<AtomicBool>) -> Result<()> {
     let pool = get_db_pool().await?;
     // sqlx::query(include_str!("./sql/migration/copy_deleted_record.sql"))
     //     .execute(&*pool)
@@ -113,12 +117,41 @@ pub async fn migrate_transactions() -> Result<()> {
     //     .execute(&*pool)
     //     .await?;
 
-    sqlx::query(include_str!("./sql/migration/delete_batch.sql"))
-        .execute(&*pool)
-        .await?;
-    sqlx::query(include_str!("./sql/migration/loop.sql"))
-        .execute(&*pool)
-        .await?;
+    for i in 0..4095 {
+        if should_terminate.load(Ordering::Relaxed) {
+            info!("Termination requested. Stopping update process at {i}");
+            break;
+        }
+        
+        let prefix: String = {
+            let hex = convert_i64_to_hex_string(i);
+            if hex.len() < 5 {
+                hex + "0%"
+            } else {
+                hex + "%"
+            }
+        };
+
+        loop {
+            if should_terminate.load(Ordering::Relaxed) {
+                break;
+            }
+            let res = sqlx::query(
+                r#"DELETE FROM transactions
+                WHERE transaction_hash LIKE $1
+                ;"#
+            )
+            .bind(prefix.clone())
+            .execute(&*pool)
+            .await?;
+            let rows = res.rows_affected();
+            if rows == 0 {
+                info!("Done migrating prefix: {prefix}");
+            } else {
+                info!("Migrated {rows} rows with prefix: {prefix}")
+            }
+        }
+    }
 
     Ok(())
 }
@@ -249,9 +282,4 @@ pub async fn get_blockheaders(start_blocknumber: i64) -> Result<Vec<BlockDetails
     .context("Failed to get blockheaders")?;
 
     Ok(result)
-}
-
-// Helper functions
-fn convert_hex_string_to_i64(hex_str: &str) -> i64 {
-    i64::from_str_radix(hex_str.trim_start_matches("0x"), 16).expect("Invalid hex string")
 }

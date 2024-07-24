@@ -104,7 +104,7 @@ async fn main() -> Result<()> {
                 )
                 .await
             }
-            Mode::Migrate => commands::migrate().await,
+            Mode::Migrate => commands::migrate(&terminate_clone).await,
         };
 
         match res {
