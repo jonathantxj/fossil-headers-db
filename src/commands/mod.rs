@@ -10,7 +10,7 @@ use tokio::task;
 use crate::types::TxHash;
 use crate::{db, endpoints, fossil_mmr, types::type_utils};
 
-const MAX_RETRIES: u32 = 10;
+const MAX_RETRIES: u32 = 1;
 
 // Seconds
 const SLEEP_INTERVAL: u64 = 60;
