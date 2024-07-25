@@ -108,11 +108,12 @@ pub async fn fix_gas(transaction: Transaction) -> Result<()> {
     let res = sqlx::query(
         r#"
         UPDATE transactions
-        SET gas = $1
-        WHERE transaction_hash = $2 AND block_number = $3
+        SET gas = $1, transaction_index = $2
+        WHERE transaction_hash = $3 AND block_number = $4
         "#,
     )
     .bind(transaction.gas)
+    .bind(transaction.transaction_index)
     .bind(&transaction.hash)
     .bind(&transaction.block_number)
     .execute(&*pool)
@@ -155,11 +156,11 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
     .context("Failed to insert block header")?;
 
     if result.rows_affected() == 0 {
-        warn!(
-            "Block already exists: -- block number: {}, block hash: {}",
-            block_header.number, block_header.hash
-        );
-        return Ok(());
+        // warn!(
+        //     "Block already exists: -- block number: {}, block hash: {}",
+        //     block_header.number, block_header.hash
+        // );
+        // return Ok(());
     } else {
         info!(
             "Inserted block number: {}, block hash: {}",
@@ -191,7 +192,11 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
                 .push_bind(&tx.chain_id);
         });
 
-        query_builder.push(" ON CONFLICT (transaction_hash) DO NOTHING");
+        query_builder.push(
+        "ON CONFLICT (transaction_hash) DO UPDATE SET 
+            transaction_index = EXCLUDED.transaction_index,
+            gas = EXCLUDED.gas"
+        );
 
         let query = query_builder.build();
         let result = query
