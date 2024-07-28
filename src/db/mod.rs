@@ -112,43 +112,38 @@ pub async fn migrate_transactions(should_terminate: &Arc<AtomicBool>) -> Result<
     // sqlx::query(include_str!("./sql/migration/copy_deleted_record.sql"))
     //     .execute(&*pool)
     //     .await?;
-    
+
     // sqlx::query(include_str!("./sql/migration/delete_trigger.sql"))
     //     .execute(&*pool)
     //     .await?;
 
-    for i in 0..4095 {
+    loop {
         if should_terminate.load(Ordering::Relaxed) {
-            info!("Termination requested. Stopping update process at {i}");
+            info!("Termination requested. Stopping update process");
             break;
         }
-        
-        let prefix: String = {
-            let hex = convert_i64_to_hex_string(i);
-            if hex.len() < 5 {
-                hex + "0%"
-            } else {
-                hex + "%"
-            }
-        };
-
         loop {
             if should_terminate.load(Ordering::Relaxed) {
                 break;
             }
+
             let res = sqlx::query(
                 r#"DELETE FROM transactions
-                WHERE transaction_hash LIKE $1
-                ;"#
+                WHERE transaction_hash IN (
+                    SELECT transaction_hash 
+                    FROM transactions
+                    LIMIT 10000
+                );"#,
             )
-            .bind(prefix.clone())
             .execute(&*pool)
             .await?;
+
             let rows = res.rows_affected();
             if rows == 0 {
-                info!("Done migrating prefix: {prefix}");
+                info!("Done migrating");
+                return Ok(());
             } else {
-                info!("Migrated {rows} rows with prefix: {prefix}")
+                info!("Migrated {rows} rows");
             }
         }
     }
@@ -245,15 +240,13 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
         });
 
         query_builder.push(
-        "ON CONFLICT (transaction_hash) DO UPDATE SET 
+            "ON CONFLICT (transaction_hash) DO UPDATE SET 
             transaction_index = EXCLUDED.transaction_index,
-            gas = EXCLUDED.gas"
+            gas = EXCLUDED.gas",
         );
 
         let query = query_builder.build();
-        let result = query
-            .execute(&mut *tx)
-            .await?;
+        let result = query.execute(&mut *tx).await?;
 
         info!(
             "Inserted {} transactions for block {}",

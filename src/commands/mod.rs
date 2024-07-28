@@ -327,10 +327,17 @@ async fn fix_gas(tx_hash: TxHash) -> Result<()> {
 
 pub async fn migrate(should_terminate: &Arc<AtomicBool>) -> Result<()> {
     loop {
+        if should_terminate.load(Ordering::Relaxed) {
+            info!("Termination requested. Stopping update process.");
+            break;
+        }
         match db::migrate_transactions(&should_terminate).await {
             Ok(()) => return Ok(()),
-            Err(e) => {warn!("Error migrating: {e}")}
+            Err(e) => {
+                warn!("Error migrating: {e}")
+            }
         }
         tokio::time::sleep(Duration::from_secs(60)).await;
     }
+    Ok(())
 }
