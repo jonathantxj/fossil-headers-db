@@ -1,6 +1,5 @@
 use anyhow::Result;
 use axum::{
-    debug_handler,
     extract::Path,
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -32,7 +31,6 @@ where
     }
 }
 
-#[debug_handler]
 pub async fn get_mmr_latest() -> Result<Json<Update>, Error> {
     info!("Received request for latest mmr");
 
