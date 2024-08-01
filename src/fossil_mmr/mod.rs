@@ -1,6 +1,6 @@
 use accumulators::{
     hasher::keccak::KeccakHasher,
-    mmr::{AppendResult, Proof, MMR},
+    mmr::{element_index_to_leaf_index, elements_count_to_leaf_count, AppendResult, Proof, MMR},
     store::sqlite::SQLiteStore,
 };
 use anyhow::Result;
@@ -63,15 +63,15 @@ pub async fn update_mmr(should_terminate: &AtomicBool) -> Result<()> {
     }
 
     let mmr = get_mmr().await?;
-    let elements_count = {
+    let element_count = {
         let mmr_guard = mmr.lock().await;
         mmr_guard.elements_count.get().await?
     };
-    let last_added_blocknumber: i64 = elements_count.try_into()?;
+    let last_added_blocknumber: i64 = element_count_to_blocknumber(element_count)?;
 
     IS_UPDATING.store(true, Ordering::SeqCst);
 
-    info!("Last added block number: {}", last_added_blocknumber - 1);
+    info!("Last added block number: {}", last_added_blocknumber);
     let hashes: Vec<BlockDetails> = db::get_blockheaders(last_added_blocknumber).await?;
     info!("Successfully retrieved {} blockheaders", hashes.len());
 
@@ -94,12 +94,13 @@ async fn verify_first_new_block_sequence(
         .append(first_block_details.block_hash.to_string())
         .await?;
 
-    let expected_index: usize = (first_block_details.number + 1).try_into().unwrap();
+    let expected_number: i64 =
+        element_index_to_leaf_index(append_result.element_index)?.try_into()?;
 
     assert_eq!(
-        append_result.element_index, expected_index,
-        "Blockdetail not added in order. Block number: {}, expected index: {}, actual index: {}",
-        first_block_details.number, expected_index, append_result.element_index
+        first_block_details.number, expected_number,
+        "Blockdetail not added in order. Expected blocknumber: {}, received blocknumber: {}",
+        expected_number, first_block_details.number
     );
 
     draft.commit().await?;
@@ -153,7 +154,8 @@ async fn append_to_mmr(
         prev_blocknumber = block_detail.number;
     }
 
-    let last_blocknumber_added: i64 = mmr_guard.elements_count.get().await?.try_into()?;
+    let element_count = mmr_guard.elements_count.get().await?;
+    let last_blocknumber_added: i64 = element_count_to_blocknumber(element_count)?;
 
     info!("Last block added: {}", last_blocknumber_added);
     Ok(())
@@ -181,4 +183,9 @@ async fn update_mmr_stats(latest_blocknumber: i64, latest_roothash: String) -> R
 pub async fn get_mmr_stats() -> Result<Update> {
     let update_guard = LATEST_UPDATE.lock().await;
     Ok(update_guard.clone())
+}
+
+fn element_count_to_blocknumber(element_count: usize) -> Result<i64> {
+    let leaf_count: i64 = elements_count_to_leaf_count(element_count)?.try_into()?;
+    Ok(leaf_count - 1)
 }

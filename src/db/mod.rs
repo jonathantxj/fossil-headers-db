@@ -170,9 +170,8 @@ pub async fn get_blockheaders(start_blocknumber: i64) -> Result<Vec<BlockDetails
     let result: Vec<BlockDetails> = sqlx::query_as(
         r#"
         SELECT block_hash, number FROM blockheaders
-            WHERE number >= $1
+            WHERE number > $1
             ORDER BY number ASC
-            LIMIT 1
         "#,
     )
     .bind(start_blocknumber)

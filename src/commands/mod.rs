@@ -137,10 +137,6 @@ async fn chain_update_blocks(
             let new_latest_block = endpoints::get_latest_blocknumber(Some(TIMEOUT)).await?;
             if new_latest_block > last_block {
                 range_start = last_block + 1;
-                info!(
-                    "New latest_block: {}, previous block inserted: {}.",
-                    new_latest_block, last_block
-                );
                 last_block = new_latest_block;
                 break;
             } else {
