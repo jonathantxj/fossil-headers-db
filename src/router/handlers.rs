@@ -46,10 +46,3 @@ pub async fn get_mmr_proof(Path(blocknumber): Path<i64>) -> Result<Json<ProofWra
     let res = fossil_mmr::get_proof(blocknumber).await?;
     Ok(Json(ProofWrapper { proof: res }))
 }
-
-// pub async fn verify_mmr_proof(Json(payload): Json<Proof>) -> fossil_mmr::Result<Json<bool>> {
-//     let res = fossil_mmr::verify(blocknumber)
-//         .await
-//         .expect(format!("Error getting proof for {}", blocknumber).as_str());
-//     Ok(Json(res))
-// }

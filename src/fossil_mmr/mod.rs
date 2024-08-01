@@ -12,7 +12,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use tokio::sync::{Mutex, OnceCell};
+use tokio::sync::{Mutex, MutexGuard, OnceCell};
 
 use crate::{
     db,
@@ -41,13 +41,7 @@ async fn get_mmr() -> Result<Arc<Mutex<MMR>>> {
             let hasher = Arc::new(KeccakHasher::new());
             let mmr = MMR::new(store_rc.clone(), hasher.clone(), Some(MMR_ID.to_string()));
 
-            // let element_count: usize = mmr.elements_count.get().await?;
-            // let last_added_blocknumber: i64 = element_count.try_into()?;
-            // let bag = mmr.bag_the_peaks(None).await?;
-            // let latest_roothash = mmr.calculate_root_hash(&bag, element_count).expect("Error calculating latest_roothash");
-
             let arc_mutex_mmr = Arc::new(Mutex::new(mmr));
-            // update_mmr_stats(last_added_blocknumber, latest_roothash).await?;
 
             match HASHES_MMR.set(arc_mutex_mmr.clone()) {
                 Ok(_) => Ok(arc_mutex_mmr),
@@ -167,9 +161,9 @@ async fn append_to_mmr(
 
 pub async fn get_proof(blocknumber: i64) -> Result<Proof> {
     let element_index: usize = (blocknumber + 1).try_into().unwrap();
-    let mmr = get_mmr().await?;
-    let mmr_guard = mmr.lock().await;
-    let res = mmr_guard.get_proof(element_index, None).await?;
+    let mmr: Arc<Mutex<MMR>> = get_mmr().await?;
+    let mmr_guard: MutexGuard<MMR> = mmr.lock().await;
+    let res: Proof = mmr_guard.get_proof(element_index, None).await?;
 
     Ok(res)
 }

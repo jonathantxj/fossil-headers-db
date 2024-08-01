@@ -50,27 +50,6 @@ async fn main() -> Result<()> {
 
     setup_ctrlc_handler(Arc::clone(&should_terminate))?;
 
-    // let router = tokio::spawn(async move {
-    //     router::initialize_router(should_terminate.clone()).await
-    // });
-
-    // let updater = tokio::spawn(async move {
-    //     match cli.mode {
-    //         Mode::Fix => {
-    //             commands::fill_gaps(cli.start, cli.end, Arc::clone(&terminate_clone)).await
-    //         }
-    //         Mode::Update => {
-    //             commands::update_from(
-    //                 cli.start,
-    //                 cli.end,
-    //                 min(cli.loopsize, db::DB_MAX_CONNECTIONS),
-    //                 Arc::clone(&terminate_clone),
-    //             )
-    //             .await
-    //         }
-    //     }
-    // });
-
     let router = async {
         let res = router::initialize_router(should_terminate.clone()).await;
         match res {

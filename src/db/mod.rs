@@ -94,7 +94,7 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
             transaction_root, receipts_root, state_root
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (block_hash) DO NOTHING
+        ON CONFLICT (number) DO NOTHING
         "#,
     )
     .bind(&block_header.hash)
@@ -157,7 +157,7 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
         info!(
             "Inserted {} transactions for block {}",
             result.rows_affected(),
-            block_header.hash
+            block_header.number
         );
     }
 

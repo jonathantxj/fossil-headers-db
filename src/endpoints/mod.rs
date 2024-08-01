@@ -4,7 +4,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use crate::types::{BlockHeaderWithEmptyTransaction, BlockHeaderWithFullTransaction};
+use crate::types::{type_utils::convert_hex_string_to_i64, BlockHeaderWithEmptyTransaction, BlockHeaderWithFullTransaction};
 
 static CLIENT: Lazy<Client> = Lazy::new(Client::new);
 static NODE_CONNECTION_STRING: Lazy<String> = Lazy::new(|| {
@@ -26,7 +26,7 @@ struct RpcRequest<'a, T> {
     params: T,
 }
 
-pub async fn get_latest_blocknumber(timeout: Option<u64>) -> Result<String> {
+pub async fn get_latest_blocknumber(timeout: Option<u64>) -> Result<i64> {
     let params = RpcRequest {
         jsonrpc: "2.0",
         id: "0",
@@ -38,7 +38,7 @@ pub async fn get_latest_blocknumber(timeout: Option<u64>) -> Result<String> {
         .await
         .context("Failed to get latest block number")
     {
-        Ok(blockheader) => Ok(blockheader.number),
+        Ok(blockheader) => Ok(convert_hex_string_to_i64(&blockheader.number)),
         Err(e) => Err(e),
     }
 }

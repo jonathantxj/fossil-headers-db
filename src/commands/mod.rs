@@ -7,12 +7,12 @@ use std::time::Duration;
 use std::{thread, time};
 use tokio::task;
 
-use crate::{db, endpoints, fossil_mmr, types::type_utils};
+use crate::{db, endpoints, fossil_mmr};
 
-const MAX_RETRIES: u32 = 10;
+const MAX_RETRIES: u64 = 10;
 
 // Seconds
-const SLEEP_INTERVAL: u64 = 60;
+const POLL_INTERVAL: u64 = 60;
 const TIMEOUT: u64 = 300;
 
 pub async fn fill_gaps(
@@ -72,6 +72,8 @@ async fn process_missing_block(block_number: i64, range_start_pointer: &mut i64)
             }
             Err(e) => warn!("[fill_gaps] Error retrieving block {block_number}: {e}"),
         }
+        let backoff: u64 = (i - 0).pow(2) * 5;
+        tokio::time::sleep(Duration::from_secs(backoff)).await;
     }
     error!("[fill_gaps] Error with block number {}", block_number);
     Ok(false)
@@ -127,27 +129,26 @@ async fn chain_update_blocks(
             break;
         }
 
-        range_start = last_block + 1;
-
         loop {
             if should_terminate.load(Ordering::Relaxed) {
                 break;
             }
 
-            let new_latest_block = range_start + 1;
+            let new_latest_block = endpoints::get_latest_blocknumber(Some(TIMEOUT)).await?;
             if new_latest_block > last_block {
-                last_block = new_latest_block;
+                range_start = last_block + 1;
                 info!(
-                    "New latest_block: {}, last block inserted: {}.",
+                    "New latest_block: {}, previous block inserted: {}.",
                     new_latest_block, last_block
                 );
+                last_block = new_latest_block;
                 break;
             } else {
                 info!(
                     "No new block finalized. Latest: {}. Sleeping for {}s...",
-                    new_latest_block, SLEEP_INTERVAL
+                    new_latest_block, POLL_INTERVAL
                 );
-                thread::sleep(time::Duration::from_secs(SLEEP_INTERVAL));
+                thread::sleep(time::Duration::from_secs(POLL_INTERVAL));
             }
         }
     }
@@ -214,29 +215,29 @@ async fn process_block(block_number: i64) -> Result<()> {
                 block_number, e
             ),
         }
-        tokio::time::sleep(Duration::from_secs(60)).await;
+        let backoff: u64 = (i - 0).pow(2) * 5;
+        tokio::time::sleep(Duration::from_secs(backoff)).await;
     }
     error!("[update_from] Error with block number {}", block_number);
     Err(anyhow::anyhow!("Failed to process block {}", block_number))
 }
 
 async fn get_first_missing_block(start: Option<i64>) -> Result<i64> {
-    let last_inserted_block = db::get_last_stored_blocknumber()
-        .await
-        .context("[update_from] Error retrieving first_recorded_block")?
-        + 1;
-
     Ok(match start {
         Some(s) => s,
-        None => last_inserted_block,
+        None => {
+            db::get_last_stored_blocknumber()
+                .await
+                .context("[update_from] Error retrieving first_recorded_block")?
+                + 1
+        }
     })
 }
 
 async fn get_last_block(end: Option<i64>) -> Result<i64> {
-    let latest_block_hex = endpoints::get_latest_blocknumber(Some(TIMEOUT))
+    let latest_block: i64 = endpoints::get_latest_blocknumber(Some(TIMEOUT))
         .await
         .context("Failed to get latest block number")?;
-    let latest_block = type_utils::convert_hex_string_to_i64(&latest_block_hex);
 
     Ok(match end {
         Some(s) => s.min(latest_block),
