@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 accumulators = { version = "0.4.2", features = ["all"] }
+async-std = "1.12.0"
 axum = { version = "0.7.5", features = ["macros"] }
 chrono = { version = "0.4.38", features = ["serde"] }
 clap = { version = "4.5.7", features = ["derive"] }

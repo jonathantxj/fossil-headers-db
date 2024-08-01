@@ -3,8 +3,7 @@ use futures_util::future::join_all;
 use log::{error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
-use std::{thread, time};
+use std::time::{self, Duration};
 use tokio::task;
 
 use crate::{db, endpoints, fossil_mmr};
@@ -144,7 +143,7 @@ async fn chain_update_blocks(
                     "No new block finalized. Latest: {}. Sleeping for {}s...",
                     new_latest_block, POLL_INTERVAL
                 );
-                thread::sleep(time::Duration::from_secs(POLL_INTERVAL));
+                async_std::task::sleep(time::Duration::from_secs(POLL_INTERVAL)).await;
             }
         }
     }
