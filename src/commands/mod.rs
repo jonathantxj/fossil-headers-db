@@ -39,21 +39,24 @@ async fn fill_missing_blocks(
     search_end: i64,
     should_terminate: &AtomicBool,
 ) -> Result<()> {
-    let mut range_end_pointer: i64 = search_end;
-    while !should_terminate.load(Ordering::Relaxed) && range_start_pointer <= range_end_pointer {
-        range_end_pointer = search_end.min(range_start_pointer + 100_000);
-        match db::find_first_gap(range_start_pointer, range_end_pointer).await? {
-            Some(block_number) => {
-                info!("[fill_gaps] Found missing block number: {}", block_number);
-                if process_missing_block(block_number, &mut range_start_pointer).await? {
-                    continue;
+    let mut range_end_pointer: i64;
+    for _ in 0..MAX_RETRIES {
+        while !should_terminate.load(Ordering::Relaxed) && range_start_pointer <= search_end {
+            range_end_pointer = search_end.min(range_start_pointer + 100_000 - 1);
+            match db::find_first_gap(range_start_pointer, range_end_pointer).await? {
+                Some(block_number) => {
+                    info!("[fill_gaps] Found missing block number: {}", block_number);
+                    if process_missing_block(block_number, &mut range_start_pointer).await? {
+                        range_start_pointer = block_number + 1;
+                    }
                 }
-            }
-            None => {
-                info!(
-                    "[fill_gaps] No missing values found from {} to {}",
-                    range_start_pointer, range_end_pointer
-                );
+                None => {
+                    info!(
+                        "[fill_gaps] No missing values found from {} to {}",
+                        range_start_pointer, range_end_pointer
+                    );
+                    range_start_pointer = range_end_pointer + 1
+                }
             }
         }
     }

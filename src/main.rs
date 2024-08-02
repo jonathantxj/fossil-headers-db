@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
 fn setup_ctrlc_handler(should_terminate: Arc<AtomicBool>) -> Result<()> {
     ctrlc::set_handler(move || {
         info!("Received Ctrl+C");
-        info!("Waiting for current blocks to finish...");
+        info!("Waiting for current processes to finish...");
         should_terminate.store(true, Ordering::SeqCst);
     })
     .context("Failed to set Ctrl+C handler")

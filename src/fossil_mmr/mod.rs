@@ -21,6 +21,7 @@ use crate::{
 
 const DB_PATH: &str = "mmr_db";
 const MMR_ID: &str = "blockheaders_mmr";
+const MMR_APPEND_LOOPSIZE: i32 = 10_000;
 static HASHES_MMR: OnceCell<Arc<Mutex<MMR>>> = OnceCell::const_new();
 static IS_UPDATING: Lazy<Arc<AtomicBool>> = Lazy::new(|| Arc::new(AtomicBool::new(false)));
 
@@ -72,10 +73,16 @@ pub async fn update_mmr(should_terminate: &AtomicBool) -> Result<()> {
     IS_UPDATING.store(true, Ordering::SeqCst);
 
     info!("Last added block number: {}", last_added_blocknumber);
-    let hashes: Vec<BlockDetails> = db::get_blockheaders(last_added_blocknumber).await?;
-    info!("Successfully retrieved {} blockheaders", hashes.len());
+    let range_end = db::get_last_stored_blocknumber().await?;
 
-    append_to_mmr(&mmr, hashes, should_terminate).await?;
+    for n in (last_added_blocknumber..=range_end).step_by(MMR_APPEND_LOOPSIZE as usize) {
+        if should_terminate.load(Ordering::Relaxed) {
+            break;
+        }
+        let hashes: Vec<BlockDetails> = db::get_blockheaders(n, MMR_APPEND_LOOPSIZE).await?;
+        info!("Successfully retrieved {} blockheaders", hashes.len());
+        append_to_mmr(&mmr, hashes, should_terminate).await?;
+    }
 
     IS_UPDATING.store(false, Ordering::SeqCst);
 

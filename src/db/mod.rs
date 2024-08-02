@@ -165,16 +165,18 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
     Ok(())
 }
 
-pub async fn get_blockheaders(start_blocknumber: i64) -> Result<Vec<BlockDetails>> {
+pub async fn get_blockheaders(start_blocknumber: i64, limit: i32) -> Result<Vec<BlockDetails>> {
     let pool = get_db_pool().await?;
     let result: Vec<BlockDetails> = sqlx::query_as(
         r#"
         SELECT block_hash, number FROM blockheaders
             WHERE number > $1
             ORDER BY number ASC
+            LIMIT $2
         "#,
     )
     .bind(start_blocknumber)
+    .bind(limit)
     .fetch_all(&*pool)
     .await
     .context("Failed to get blockheaders")?;
