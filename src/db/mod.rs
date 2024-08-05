@@ -1,3 +1,4 @@
+use crate::types::type_utils::convert_hex_string_to_i64;
 use crate::types::BlockDetails;
 use crate::types::BlockHeaderWithFullTransaction;
 use anyhow::{Context, Result};
@@ -49,6 +50,11 @@ pub async fn create_tables() -> Result<()> {
     Ok(())
 }
 
+/**
+ * Retrieves the blocknumber of the latest stored blockheader
+ *
+ * @Returns blocknumber, else -1 if table is empty
+ */
 pub async fn get_last_stored_blocknumber() -> Result<i64> {
     let pool = get_db_pool().await.context("Failed to get database pool")?;
     let result: (i64,) = sqlx::query_as("SELECT COALESCE(MAX(number), -1) FROM blockheaders")
@@ -59,6 +65,9 @@ pub async fn get_last_stored_blocknumber() -> Result<i64> {
     Ok(result.0)
 }
 
+/**
+ * Returns the first missing blocknumber in between provided numbers (inclusive)
+ */
 pub async fn find_first_gap(start: i64, end: i64) -> Result<Option<i64>> {
     let pool = get_db_pool().await.context("Failed to get database pool")?;
     let result: Option<(i64,)> = sqlx::query_as(
@@ -165,6 +174,11 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
     Ok(())
 }
 
+/**
+ * Retrieves next n numbers and hashes after provided blocknumber
+ *
+ * @Returns blocknumbers and hashes wrapped in a BlockDetails struct
+ */
 pub async fn get_blockheaders(start_blocknumber: i64, limit: i32) -> Result<Vec<BlockDetails>> {
     let pool = get_db_pool().await?;
     let result: Vec<BlockDetails> = sqlx::query_as(
@@ -182,9 +196,4 @@ pub async fn get_blockheaders(start_blocknumber: i64, limit: i32) -> Result<Vec<
     .context("Failed to get blockheaders")?;
 
     Ok(result)
-}
-
-// Helper functions
-fn convert_hex_string_to_i64(hex_str: &str) -> i64 {
-    i64::from_str_radix(hex_str.trim_start_matches("0x"), 16).expect("Invalid hex string")
 }

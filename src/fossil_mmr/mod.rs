@@ -6,7 +6,7 @@ use accumulators::{
 use anyhow::Result;
 use chrono::{TimeZone, Utc};
 use lazy_static::lazy_static;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use once_cell::sync::Lazy;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -19,9 +19,9 @@ use crate::{
     types::{BlockDetails, Update},
 };
 
-const DB_PATH: &str = "mmr_db";
+const DB_FILE_PATH: &str = "mmr_db";
 const MMR_ID: &str = "blockheaders_mmr";
-const MMR_APPEND_LOOPSIZE: i32 = 10_000;
+const MMR_APPEND_LOOPSIZE: i32 = 10_000; // How many (upper limit) block hashes are retrieved at for each query (limit for performance)
 static HASHES_MMR: OnceCell<Arc<Mutex<MMR>>> = OnceCell::const_new();
 static IS_UPDATING: Lazy<Arc<AtomicBool>> = Lazy::new(|| Arc::new(AtomicBool::new(false)));
 
@@ -37,7 +37,7 @@ async fn get_mmr() -> Result<Arc<Mutex<MMR>>> {
     match HASHES_MMR.get() {
         Some(mmr) => Ok(mmr.clone()),
         None => {
-            let store = SQLiteStore::new(DB_PATH, Some(true), Some(MMR_ID)).await?;
+            let store = SQLiteStore::new(DB_FILE_PATH, Some(true), Some(MMR_ID)).await?;
             let store_rc = Arc::new(store);
             let hasher = Arc::new(KeccakHasher::new());
             let mmr = MMR::new(store_rc.clone(), hasher.clone(), Some(MMR_ID.to_string()));
@@ -62,19 +62,20 @@ pub async fn update_mmr(should_terminate: &AtomicBool) -> Result<()> {
         error!("Currently updating MMR");
         return Ok(());
     }
+    IS_UPDATING.store(true, Ordering::SeqCst);
 
+    // Retrieves the blocknumber for the next blockhash
     let mmr = get_mmr().await?;
     let element_count = {
         let mmr_guard = mmr.lock().await;
         mmr_guard.elements_count.get().await?
     };
     let last_added_blocknumber: i64 = element_count_to_blocknumber(element_count)?;
-
-    IS_UPDATING.store(true, Ordering::SeqCst);
-
     info!("Last added block number: {}", last_added_blocknumber);
+
     let range_end = db::get_last_stored_blocknumber().await?;
 
+    // Retrives and adds block hashes in chunks of <MMR_APPEND_LOOPSIZE>
     for n in (last_added_blocknumber..=range_end).step_by(MMR_APPEND_LOOPSIZE as usize) {
         if should_terminate.load(Ordering::Relaxed) {
             break;
@@ -89,6 +90,9 @@ pub async fn update_mmr(should_terminate: &AtomicBool) -> Result<()> {
     Ok(())
 }
 
+/**
+ * Verifies that the first hash to be added is the next one that is missing from the MMR
+ */
 async fn verify_first_new_block_sequence(
     mmr: &Arc<Mutex<MMR>>,
     first_block_details: &BlockDetails,
@@ -127,22 +131,26 @@ async fn append_to_mmr(
     }
     // verify next in seq
     let first_block = block_details.first();
-    match first_block {
+    let mut prev_blocknumber = match first_block {
         None => return Ok(()),
         Some(first_block_details) => {
             verify_first_new_block_sequence(mmr, first_block_details).await?;
+            first_block_details.number
         }
     };
-
-    let mut prev_blocknumber = first_block.unwrap().number;
     let mut mmr_guard = mmr.lock().await;
 
     for block_detail in &block_details[1..] {
         if should_terminate.load(Ordering::Relaxed) {
-            info!("Termination requested. Stopping update process.");
-            info!("Last block added: {}", block_detail.number);
+            info!("Termination requested. Stopping MMR update process.");
+            let element_count = mmr_guard.elements_count.get().await?;
+            let last_blocknumber_added: i64 = element_count_to_blocknumber(element_count)?;
+
+            info!("Last block added to MMR: {}", last_blocknumber_added);
             return Ok(());
         }
+
+        // Checks the next hash to be added is what is expected (ensures hashes are added in order and without gaps)
         assert_eq!(
             block_detail.number,
             prev_blocknumber + 1,
@@ -161,10 +169,14 @@ async fn append_to_mmr(
         prev_blocknumber = block_detail.number;
     }
 
-    let element_count = mmr_guard.elements_count.get().await?;
-    let last_blocknumber_added: i64 = element_count_to_blocknumber(element_count)?;
-
-    info!("Last block added: {}", last_blocknumber_added);
+    match block_details.last() {
+        Some(detail) => {
+            info!("Last block added to MMR: {}", detail.number);
+        }
+        None => {
+            warn!("Can't retrieve last block added. Error unwrapping.")
+        }
+    }
     Ok(())
 }
 

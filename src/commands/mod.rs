@@ -31,10 +31,10 @@ pub async fn fill_gaps(
         return Ok(());
     }
 
-    fill_missing_blocks(range_start_pointer, range_end, &should_terminate).await
+    fill_missing_blocks_in_range(range_start_pointer, range_end, &should_terminate).await
 }
 
-async fn fill_missing_blocks(
+async fn fill_missing_blocks_in_range(
     mut range_start_pointer: i64,
     search_end: i64,
     should_terminate: &AtomicBool,
@@ -127,16 +127,13 @@ async fn chain_update_blocks(
         update_blocks(range_start, range_start + 1, size, should_terminate).await?;
         fossil_mmr::update_mmr(should_terminate).await?;
 
-        if should_terminate.load(Ordering::Relaxed) {
-            break;
-        }
-
         loop {
             if should_terminate.load(Ordering::Relaxed) {
                 break;
             }
 
-            let new_latest_block = endpoints::get_latest_blocknumber(Some(TIMEOUT)).await?;
+            let new_latest_block =
+                endpoints::get_latest_finalized_blocknumber(Some(TIMEOUT)).await?;
             if new_latest_block > last_block {
                 range_start = last_block + 1;
                 last_block = new_latest_block;
@@ -233,7 +230,7 @@ async fn get_first_missing_block(start: Option<i64>) -> Result<i64> {
 }
 
 async fn get_last_block(end: Option<i64>) -> Result<i64> {
-    let latest_block: i64 = endpoints::get_latest_blocknumber(Some(TIMEOUT))
+    let latest_block: i64 = endpoints::get_latest_finalized_blocknumber(Some(TIMEOUT))
         .await
         .context("Failed to get latest block number")?;
 

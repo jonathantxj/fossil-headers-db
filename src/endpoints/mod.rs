@@ -29,7 +29,7 @@ struct RpcRequest<'a, T> {
     params: T,
 }
 
-pub async fn get_latest_blocknumber(timeout: Option<u64>) -> Result<i64> {
+pub async fn get_latest_finalized_blocknumber(timeout: Option<u64>) -> Result<i64> {
     let params = RpcRequest {
         jsonrpc: "2.0",
         id: "0",
