@@ -53,11 +53,7 @@ async fn get_mmr() -> Result<Arc<Mutex<MMR>>> {
 }
 
 pub async fn update_mmr(should_terminate: &AtomicBool) -> Result<()> {
-    if should_terminate.load(Ordering::Relaxed) {
-        info!("Termination requested. Stopping update process.");
-        return Ok(());
-    }
-
+    
     if IS_UPDATING.load(Ordering::Relaxed) {
         error!("Currently updating MMR");
         return Ok(());
@@ -78,10 +74,11 @@ pub async fn update_mmr(should_terminate: &AtomicBool) -> Result<()> {
     // Retrives and adds block hashes in chunks of <MMR_APPEND_LOOPSIZE>
     for n in (last_added_blocknumber..=range_end).step_by(MMR_APPEND_LOOPSIZE as usize) {
         if should_terminate.load(Ordering::Relaxed) {
+            info!("Termination requested. Stopping MMR update process.");
             break;
         }
         let hashes: Vec<BlockDetails> = db::get_blockheaders(n, MMR_APPEND_LOOPSIZE).await?;
-        info!("Successfully retrieved {} blockheaders", hashes.len());
+        info!("Successfully retrieved {} blockheaders. Adding hashes to MMR...", hashes.len());
         append_to_mmr(&mmr, hashes, should_terminate).await?;
     }
 
@@ -125,19 +122,17 @@ async fn append_to_mmr(
     block_details: Vec<BlockDetails>,
     should_terminate: &AtomicBool,
 ) -> Result<()> {
-    if should_terminate.load(Ordering::Relaxed) {
-        info!("Termination requested. Stopping update process.");
-        return Ok(());
-    }
     // verify next in seq
     let first_block = block_details.first();
     let mut prev_blocknumber = match first_block {
         None => return Ok(()),
         Some(first_block_details) => {
+            info!("Verifing block: {}", first_block_details.number);
             verify_first_new_block_sequence(mmr, first_block_details).await?;
             first_block_details.number
         }
     };
+    info!("First block verified");
     let mut mmr_guard = mmr.lock().await;
 
     for block_detail in &block_details[1..] {
