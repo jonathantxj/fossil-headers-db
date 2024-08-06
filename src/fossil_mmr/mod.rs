@@ -19,6 +19,7 @@ use crate::{
     types::{BlockDetails, Update},
 };
 
+const MAX_RETRIES: u64 = 10;
 const DB_FILE_PATH: &str = "mmr_db";
 const MMR_ID: &str = "blockheaders_mmr";
 const MMR_APPEND_LOOPSIZE: i32 = 10_000; // How many (upper limit) block hashes are retrieved at for each query (limit for performance)
@@ -53,37 +54,54 @@ async fn get_mmr() -> Result<Arc<Mutex<MMR>>> {
 }
 
 pub async fn update_mmr(should_terminate: &AtomicBool) -> Result<()> {
-    
-    if IS_UPDATING.load(Ordering::Relaxed) {
-        error!("Currently updating MMR");
-        return Ok(());
-    }
-    IS_UPDATING.store(true, Ordering::SeqCst);
-
-    // Retrieves the blocknumber for the next blockhash
-    let mmr = get_mmr().await?;
-    let element_count = {
-        let mmr_guard = mmr.lock().await;
-        mmr_guard.elements_count.get().await?
-    };
-    let last_added_blocknumber: i64 = element_count_to_blocknumber(element_count)?;
-    info!("Last added block number: {}", last_added_blocknumber);
-
-    let range_end = db::get_last_stored_blocknumber().await?;
-
-    // Retrives and adds block hashes in chunks of <MMR_APPEND_LOOPSIZE>
-    for n in (last_added_blocknumber..=range_end).step_by(MMR_APPEND_LOOPSIZE as usize) {
-        if should_terminate.load(Ordering::Relaxed) {
-            info!("Termination requested. Stopping MMR update process.");
-            break;
+    for _ in 0..MAX_RETRIES {
+        if IS_UPDATING.load(Ordering::Relaxed) {
+            error!("Currently updating MMR");
+            return Ok(());
         }
-        let hashes: Vec<BlockDetails> = db::get_blockheaders(n, MMR_APPEND_LOOPSIZE).await?;
-        info!("Successfully retrieved {} blockheaders. Adding hashes to MMR...", hashes.len());
-        append_to_mmr(&mmr, hashes, should_terminate).await?;
+        IS_UPDATING.store(true, Ordering::SeqCst);
+
+        // Retrieves the blocknumber for the next blockhash
+        let mmr = get_mmr().await?;
+        let element_count = {
+            let mmr_guard = mmr.lock().await;
+            mmr_guard.elements_count.get().await?
+        };
+        let last_added_blocknumber: i64 = element_count_to_blocknumber(element_count)?;
+        info!("Last added block number: {}", last_added_blocknumber);
+
+        match db::get_last_stored_blocknumber().await {
+            Ok(range_end) => {
+                // Retrives and adds block hashes in chunks of <MMR_APPEND_LOOPSIZE>
+                for n in (last_added_blocknumber..=range_end).step_by(MMR_APPEND_LOOPSIZE as usize)
+                {
+                    if should_terminate.load(Ordering::Relaxed) {
+                        info!("Termination requested. Stopping MMR update process.");
+                        break;
+                    }
+                    match db::get_blockheaders(n, MMR_APPEND_LOOPSIZE).await {
+                        Ok(hashes) => {
+                            info!(
+                                "Successfully retrieved {} blockheaders. Adding hashes to MMR...",
+                                hashes.len()
+                            );
+                            match append_to_mmr(&mmr, hashes, should_terminate).await {
+                        Ok(_) => return Ok(()),
+                        Err(e) => warn!("[update_mmr] Error appending to MMR, blockheaders from block {n}: {e}"),
+                    }
+                        }
+                        Err(e) => {
+                            warn!("[update_mmr] Error getting blockheaders from block {n}: {e}")
+                        }
+                    }
+                }
+            }
+            Err(e) => warn!("[update_mmr] Error getting last stored blocknumber from db: {e}"),
+        }
+
+        IS_UPDATING.store(false, Ordering::SeqCst);
+        error!("[update_mmr] Error with updating MMR. Last stored blocknumber:{last_added_blocknumber}");
     }
-
-    IS_UPDATING.store(false, Ordering::SeqCst);
-
     Ok(())
 }
 
