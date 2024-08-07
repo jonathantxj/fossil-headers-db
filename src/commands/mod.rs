@@ -239,3 +239,11 @@ async fn get_last_block(end: Option<i64>) -> Result<i64> {
         None => latest_block,
     })
 }
+
+
+pub async fn mmr(
+    should_terminate: Arc<AtomicBool>,
+) -> Result<()> {
+    fossil_mmr::update_mmr(&should_terminate).await?;
+    Ok(())
+}

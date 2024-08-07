@@ -37,6 +37,7 @@ struct Cli {
 enum Mode {
     Fix,
     Update,
+    MMR,
 }
 
 #[tokio::main]
@@ -72,6 +73,7 @@ async fn main() -> Result<()> {
                 )
                 .await
             }
+            Mode::MMR => commands::mmr(Arc::clone(&terminate_clone)).await,
         };
 
         match res {

@@ -118,18 +118,18 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
     .await
     .context("Failed to insert block header")?;
 
-    if result.rows_affected() == 0 {
-        warn!(
-            "Block already exists: -- block number: {}, block hash: {}",
-            block_header.number, block_header.hash
-        );
-        return Ok(());
-    } else {
-        info!(
-            "Inserted block number: {}, block hash: {}",
-            block_header.number, block_header.hash
-        );
-    }
+    // if result.rows_affected() == 0 {
+    //     warn!(
+    //         "Block already exists: -- block number: {}, block hash: {}",
+    //         block_header.number, block_header.hash
+    //     );
+    //     return Ok(());
+    // } else {
+    //     info!(
+    //         "Inserted block number: {}, block hash: {}",
+    //         block_header.number, block_header.hash
+    //     );
+    // }
 
     // Insert transactions
     if !block_header.transactions.is_empty() {
