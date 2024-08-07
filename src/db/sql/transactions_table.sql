@@ -1,20 +1,13 @@
 CREATE TABLE IF NOT EXISTS transactions (
-    block_number BIGINT,
-    block_hash CHAR(66) REFERENCES blockheaders(block_hash),
+    block_number BIGINT REFERENCES blockheaders(number),
     transaction_hash CHAR(66) PRIMARY KEY,
-    mint VARCHAR(78),
-    source_hash CHAR(66),
-    nonce VARCHAR(78) NOT NULL,
-    transaction_index INTEGER NOT NULL,
     from_addr CHAR(42),
     to_addr CHAR(42),
     value VARCHAR(78) NOT NULL,
     gas_price VARCHAR(78) NOT NULL,
     max_priority_fee_per_gas VARCHAR(78),
     max_fee_per_gas VARCHAR(78),
+    transaction_index INTEGER NOT NULL,
     gas VARCHAR(78) NOT NULL,
-    input BYTEA,
-    chain_id VARCHAR(78),
-    type SMALLINT NOT NULL,
-    v VARCHAR(78)
-);
+    chain_id VARCHAR(78)
+    );
