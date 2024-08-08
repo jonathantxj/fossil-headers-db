@@ -53,6 +53,7 @@ async fn get_mmr() -> Result<Arc<Mutex<MMR>>> {
     }
 }
 
+
 pub async fn update_mmr(should_terminate: &AtomicBool) -> Result<()> {
     for _ in 0..MAX_RETRIES {
         if IS_UPDATING.load(Ordering::Relaxed) {
@@ -61,92 +62,95 @@ pub async fn update_mmr(should_terminate: &AtomicBool) -> Result<()> {
         }
         IS_UPDATING.store(true, Ordering::SeqCst);
 
-        // Retrieves the blocknumber for the next blockhash
-        let mmr = get_mmr().await?;
-        let element_count = {
-            let mmr_guard = mmr.lock().await;
-            mmr_guard.elements_count.get().await?
-        };
-        let last_added_blocknumber: i64 = element_count_to_blocknumber(element_count)?;
-        info!("Last added block number: {}", last_added_blocknumber);
-
-        match db::get_last_stored_blocknumber().await {
-            Ok(range_end) => {
-                // Retrives and adds block hashes in chunks of <MMR_APPEND_LOOPSIZE>
-                for n in (last_added_blocknumber..=range_end).step_by(MMR_APPEND_LOOPSIZE as usize)
-                {
-                    if should_terminate.load(Ordering::Relaxed) {
-                        info!("Termination requested. Stopping MMR update process.");
-                        break;
-                    }
-                    match db::get_blockheaders(n, MMR_APPEND_LOOPSIZE).await {
-                        Ok(hashes) => {
-                            info!(
-                                "Successfully retrieved {} blockheaders. Adding hashes to MMR...",
-                                hashes.len()
-                            );
-                            match append_to_mmr(&mmr, hashes, should_terminate).await {
-                        Ok(_) => return Ok(()),
-                        Err(e) => warn!("[update_mmr] Error appending to MMR, blockheaders from block {n}: {e}"),
-                    }
-                        }
-                        Err(e) => {
-                            warn!("[update_mmr] Error getting blockheaders from block {n}: {e}")
-                        }
-                    }
-                }
-            }
-            Err(e) => warn!("[update_mmr] Error getting last stored blocknumber from db: {e}"),
-        }
+        let update_result = perform_mmr_update(should_terminate).await;
 
         IS_UPDATING.store(false, Ordering::SeqCst);
-        error!("[update_mmr] Error with updating MMR. Last stored blocknumber:{last_added_blocknumber}");
+
+        match update_result {
+            Ok(_) => return Ok(()),
+            Err(e) => warn!("[update_mmr] Error with updating MMR: {}", e),
+        }
     }
+    error!("[update_mmr] Max retries reached. Failed to update MMR.");
     Ok(())
 }
 
-/**
- * Verifies that the first hash to be added is the next one that is missing from the MMR
- */
-async fn verify_first_new_block_sequence(
-    mmr: &Arc<Mutex<MMR>>,
-    first_block_details: &BlockDetails,
-) -> Result<()> {
-    let mut mmr_guard = mmr.lock().await;
+async fn perform_mmr_update(should_terminate: &AtomicBool) -> Result<()> {
+    let last_added_blocknumber = get_last_added_blocknumber().await?;
+    info!("Last added block number: {}", last_added_blocknumber);
 
-    let mut draft = mmr_guard.start_draft().await?;
-    let append_result = draft
-        .mmr
-        .append(first_block_details.block_hash.to_string())
-        .await?;
+    let range_end = db::get_last_stored_blocknumber().await?;
 
-    let expected_number: i64 =
-        element_index_to_leaf_index(append_result.element_index)?.try_into()?;
+    for start_block in (last_added_blocknumber..=range_end).step_by(MMR_APPEND_LOOPSIZE as usize) {
+        if should_terminate.load(Ordering::Relaxed) {
+            info!("Termination requested. Stopping MMR update process.");
+            return Ok(());
+        }
 
-    assert_eq!(
-        first_block_details.number, expected_number,
-        "Blockdetail not added in order. Expected blocknumber: {}, received blocknumber: {}",
-        expected_number, first_block_details.number
-    );
-
-    draft.commit().await?;
-    update_mmr_stats(first_block_details.number, append_result.root_hash).await?;
+        update_mmr_chunk(start_block, should_terminate).await?;
+    }
 
     Ok(())
+}
+
+async fn get_last_added_blocknumber() -> Result<i64> {
+    // Retrieves the blocknumber for the next blockhash
+    let mmr = get_mmr().await?;
+    let element_count = {
+        let mmr_guard = mmr.lock().await;
+        mmr_guard.elements_count.get().await?
+    };
+    element_count_to_blocknumber(element_count)
+}
+
+
+async fn update_mmr_chunk(start_block: i64, should_terminate: &AtomicBool) -> Result<()> {
+    for _ in 0..MAX_RETRIES {
+        if should_terminate.load(Ordering::Relaxed) {
+            info!("Termination requested. Stopping MMR update process.");
+            return Ok(());
+        }
+
+        match db::get_blockheaders(start_block, MMR_APPEND_LOOPSIZE).await {
+            Ok(hashes) => {
+                info!(
+                    "Successfully retrieved {} blockheaders. Adding hashes to MMR...",
+                    hashes.len()
+                );
+                match append_to_mmr(hashes, should_terminate).await {
+                    Ok(_) => return Ok(()),
+                    Err(e) => warn!(
+                        "[update_mmr_chunk] Error appending to MMR, blockheaders from block {}: {}",
+                        start_block, e
+                    ),
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "[update_mmr_chunk] Error getting blockheaders from block {}: {}",
+                    start_block, e
+                )
+            }
+        }
+    }
+    Err(anyhow::anyhow!(
+        "Failed to update MMR chunk starting at block {}",
+        start_block
+    ))
 }
 
 async fn append_to_mmr(
-    mmr: &Arc<Mutex<MMR>>,
     block_details: Vec<BlockDetails>,
     should_terminate: &AtomicBool,
 ) -> Result<()> {
+    let mmr = get_mmr().await?;
     // verify next in seq
     let first_block = block_details.first();
     let mut prev_blocknumber = match first_block {
         None => return Ok(()),
         Some(first_block_details) => {
             info!("Verifing block: {}", first_block_details.number);
-            verify_first_new_block_sequence(mmr, first_block_details).await?;
+            verify_first_new_block_sequence(&mmr, first_block_details).await?;
             first_block_details.number
         }
     };
@@ -190,6 +194,36 @@ async fn append_to_mmr(
             warn!("Can't retrieve last block added. Error unwrapping.")
         }
     }
+    Ok(())
+}
+
+/**
+ * Verifies that the first hash to be added is the next one that is missing from the MMR
+ */
+async fn verify_first_new_block_sequence(
+    mmr: &Arc<Mutex<MMR>>,
+    first_block_details: &BlockDetails,
+) -> Result<()> {
+    let mut mmr_guard = mmr.lock().await;
+
+    let mut draft = mmr_guard.start_draft().await?;
+    let append_result = draft
+        .mmr
+        .append(first_block_details.block_hash.to_string())
+        .await?;
+
+    let expected_number: i64 =
+        element_index_to_leaf_index(append_result.element_index)?.try_into()?;
+
+    assert_eq!(
+        first_block_details.number, expected_number,
+        "Blockdetail not added in order. Expected blocknumber: {}, received blocknumber: {}",
+        expected_number, first_block_details.number
+    );
+
+    draft.commit().await?;
+    update_mmr_stats(first_block_details.number, append_result.root_hash).await?;
+
     Ok(())
 }
 
