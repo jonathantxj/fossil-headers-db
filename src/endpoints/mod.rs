@@ -60,6 +60,20 @@ pub async fn get_full_block_by_number(
     make_rpc_call::<_, BlockHeaderWithFullTransaction>(&params, timeout).await
 }
 
+pub async fn get_bare_block_by_number(
+    number: i64,
+    timeout: Option<u64>,
+) -> Result<BlockHeaderWithEmptyTransaction> {
+    let params = RpcRequest {
+        jsonrpc: "2.0",
+        id: "0",
+        method: "eth_getBlockByNumber",
+        params: vec![format!("0x{:x}", number), false.to_string()],
+    };
+
+    make_rpc_call::<_, BlockHeaderWithEmptyTransaction>(&params, timeout).await
+}
+
 async fn make_rpc_call<T: Serialize, R: for<'de> Deserialize<'de>>(
     params: &T,
     timeout: Option<u64>,

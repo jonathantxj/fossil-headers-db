@@ -240,10 +240,92 @@ async fn get_last_block(end: Option<i64>) -> Result<i64> {
     })
 }
 
-
-pub async fn mmr(
-    should_terminate: Arc<AtomicBool>,
-) -> Result<()> {
+pub async fn mmr(should_terminate: Arc<AtomicBool>) -> Result<()> {
     fossil_mmr::update_mmr(&should_terminate).await?;
     Ok(())
+}
+
+pub async fn add_base_gas_from(
+    start: Option<i64>,
+    end: Option<i64>,
+    size: u32,
+    should_terminate: Arc<AtomicBool>,
+) -> Result<()> {
+    db::create_tables()
+        .await
+        .context("Failed to create tables")?;
+
+    let range_start = get_first_missing_block(start).await?;
+    info!("Range start: {}", range_start);
+
+    let last_block = get_last_block(end).await?;
+    info!("Range end: {}", last_block);
+
+    add_base_gas_to_blocks(range_start, last_block, size, &should_terminate).await
+}
+
+async fn add_base_gas_to_blocks(
+    range_start: i64,
+    last_block: i64,
+    size: u32,
+    should_terminate: &AtomicBool,
+) -> Result<()> {
+    if range_start <= last_block {
+        for n in (range_start..=last_block.max(range_start)).step_by(size as usize) {
+            if should_terminate.load(Ordering::Relaxed) {
+                info!("Termination requested. Stopping update process.");
+                break;
+            }
+
+            let range_end = (last_block + 1).min(n + size as i64);
+
+            let tasks: Vec<_> = (n..range_end)
+                .map(|block_number| task::spawn(process_add_block(block_number)))
+                .collect();
+
+            let all_res = join_all(tasks).await;
+            let has_err = all_res.iter().any(|join_res| {
+                join_res.is_err() || join_res.as_ref().is_ok_and(|res| res.is_err())
+            });
+
+            if has_err {
+                error!("Rerun from block: {}", n);
+                break;
+            }
+            info!(
+                "Written blocks {} - {}. Next block: {}",
+                n,
+                range_end - 1,
+                range_end
+            );
+        }
+    }
+
+    Ok(())
+}
+
+async fn process_add_block(block_number: i64) -> Result<()> {
+    for i in 0..MAX_RETRIES {
+        match endpoints::get_bare_block_by_number(block_number, Some(TIMEOUT)).await {
+            Ok(block) => match db::add_base_gas_to_blockheader(block).await {
+                Ok(_) => {
+                    if i > 0 {
+                        info!(
+                            "[update_from] Successfully wrote block {block_number} after {i} retries"
+                        );
+                    }
+                    return Ok(());
+                }
+                Err(e) => warn!("[update_from] Error writing block {block_number}: {e}"),
+            },
+            Err(e) => warn!(
+                "[update_from] Error retrieving block {}: {}",
+                block_number, e
+            ),
+        }
+        let backoff: u64 = (i - 0).pow(2) * 5;
+        tokio::time::sleep(Duration::from_secs(backoff)).await;
+    }
+    error!("[update_from] Error with block number {}", block_number);
+    Err(anyhow::anyhow!("Failed to process block {}", block_number))
 }

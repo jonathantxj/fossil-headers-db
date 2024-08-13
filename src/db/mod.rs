@@ -1,5 +1,6 @@
 use crate::types::type_utils::convert_hex_string_to_i64;
 use crate::types::BlockDetails;
+use crate::types::BlockHeaderWithEmptyTransaction;
 use crate::types::BlockHeaderWithFullTransaction;
 use anyhow::{Context, Result};
 use log::{info, warn};
@@ -196,4 +197,30 @@ pub async fn get_blockheaders(start_blocknumber: i64, limit: i32) -> Result<Vec<
     .context("Failed to get blockheaders")?;
 
     Ok(result)
+}
+
+pub async fn add_base_gas_to_blockheader(
+    block_header: BlockHeaderWithEmptyTransaction,
+) -> Result<()> {
+    let pool = get_db_pool().await?;
+
+    // Insert block header
+    let result = sqlx::query(
+        r#"
+        UPDATE blockheaders 
+        SET base_fee_per_gas = $1
+        WHERE number = $2;
+        "#,
+    )
+    .bind(block_header.base_fee_per_gas)
+    .bind(convert_hex_string_to_i64(&block_header.number))
+    .execute(&*pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        warn!("Error, no rows affected - block: {}", block_header.number);
+    } else {
+        info!("Updated block: {}", block_header.number);
+    }
+    Ok(())
 }

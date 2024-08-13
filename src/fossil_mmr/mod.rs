@@ -1,6 +1,9 @@
 use accumulators::{
     hasher::keccak::KeccakHasher,
-    mmr::{element_index_to_leaf_index, elements_count_to_leaf_count, map_leaf_index_to_element_index, AppendResult, Proof, MMR},
+    mmr::{
+        element_index_to_leaf_index, elements_count_to_leaf_count, map_leaf_index_to_element_index,
+        AppendResult, Proof, MMR,
+    },
     store::sqlite::SQLiteStore,
 };
 use anyhow::Result;
@@ -54,7 +57,6 @@ async fn get_mmr() -> Result<Arc<Mutex<MMR>>> {
     }
 }
 
-
 pub async fn update_mmr(should_terminate: &AtomicBool) -> Result<()> {
     for _ in 0..MAX_RETRIES {
         if IS_UPDATING.load(Ordering::Relaxed) {
@@ -103,7 +105,6 @@ async fn get_last_added_blocknumber() -> Result<i64> {
     };
     element_count_to_blocknumber(element_count)
 }
-
 
 async fn update_mmr_chunk(start_block: i64, should_terminate: &AtomicBool) -> Result<()> {
     for _ in 0..MAX_RETRIES {
@@ -160,7 +161,6 @@ async fn append_to_mmr(
     for block_detail_chunk in block_details[1..].chunks(MMR_APPEND_CHUNKSIZE) {
         let mut mmr_guard = mmr.lock().await;
         for block_detail in block_detail_chunk {
-            
             if should_terminate.load(Ordering::Relaxed) {
                 info!("Termination requested. Stopping MMR update process.");
                 let element_count = mmr_guard.elements_count.get().await?;

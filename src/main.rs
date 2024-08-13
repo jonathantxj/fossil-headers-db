@@ -37,6 +37,7 @@ struct Cli {
 enum Mode {
     Fix,
     Update,
+    BASE,
     MMR,
 }
 
@@ -66,6 +67,15 @@ async fn main() -> Result<()> {
             }
             Mode::Update => {
                 commands::update_from(
+                    cli.start,
+                    cli.end,
+                    min(cli.loopsize, db::DB_MAX_CONNECTIONS),
+                    Arc::clone(&terminate_clone),
+                )
+                .await
+            }
+            Mode::BASE => {
+                commands::add_base_gas_from(
                     cli.start,
                     cli.end,
                     min(cli.loopsize, db::DB_MAX_CONNECTIONS),
