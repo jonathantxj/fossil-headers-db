@@ -307,7 +307,12 @@ async fn add_base_gas_to_blocks(
 async fn process_add_block(block_number: i64) -> Result<()> {
     for i in 0..MAX_RETRIES {
         match endpoints::get_bare_block_by_number(block_number, Some(TIMEOUT)).await {
-            Ok(block) => match db::add_base_gas_to_blockheader(block).await {
+            Ok(block) => {
+                if block.base_fee_per_gas.is_none() {
+                    info!("base_fee_per_gas for {} is none... Skipped", {block.number});
+                    return Ok(())
+                }
+                match db::add_base_gas_to_blockheader(block).await {
                 Ok(_) => {
                     if i > 0 {
                         info!(
@@ -317,7 +322,8 @@ async fn process_add_block(block_number: i64) -> Result<()> {
                     return Ok(());
                 }
                 Err(e) => warn!("[update_from] Error writing block {block_number}: {e}"),
-            },
+            }
+        },
             Err(e) => warn!(
                 "[update_from] Error retrieving block {}: {}",
                 block_number, e

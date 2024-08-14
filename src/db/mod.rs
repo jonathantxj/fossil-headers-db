@@ -120,18 +120,18 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
     .await
     .context("Failed to insert block header")?;
 
-    // if result.rows_affected() == 0 {
-    //     warn!(
-    //         "Block already exists: -- block number: {}, block hash: {}",
-    //         block_header.number, block_header.hash
-    //     );
-    //     return Ok(());
-    // } else {
-    //     info!(
-    //         "Inserted block number: {}, block hash: {}",
-    //         block_header.number, block_header.hash
-    //     );
-    // }
+    if result.rows_affected() == 0 {
+        warn!(
+            "Block already exists: -- block number: {}, block hash: {}",
+            block_header.number, block_header.hash
+        );
+        return Ok(());
+    } else {
+        info!(
+            "Inserted block number: {}, block hash: {}",
+            block_header.number, block_header.hash
+        );
+    }
 
     // Insert transactions
     if !block_header.transactions.is_empty() {
@@ -205,6 +205,8 @@ pub async fn add_base_gas_to_blockheader(
 ) -> Result<()> {
     let pool = get_db_pool().await?;
 
+    let block_number = convert_hex_string_to_i64(&block_header.number);
+
     // Insert block header
     let result = sqlx::query(
         r#"
@@ -214,14 +216,14 @@ pub async fn add_base_gas_to_blockheader(
         "#,
     )
     .bind(block_header.base_fee_per_gas)
-    .bind(convert_hex_string_to_i64(&block_header.number))
+    .bind(block_number)
     .execute(&*pool)
     .await?;
 
     if result.rows_affected() == 0 {
-        warn!("Error, no rows affected - block: {}", block_header.number);
+        warn!("Error, no rows affected - block: {}", block_number);
     } else {
-        info!("Updated block: {}", block_header.number);
+        info!("Updated block: {}", block_number);
     }
     Ok(())
 }
