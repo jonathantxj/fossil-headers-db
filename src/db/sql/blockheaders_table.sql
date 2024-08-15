@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS blockheaders (
     number BIGINT PRIMARY KEY,
     gas_limit BIGINT NOT NULL,
     gas_used BIGINT NOT NULL,
+    base_fee_per_gas VARCHAR(78),
     nonce VARCHAR(78) NOT NULL,
     transaction_root CHAR(66),
     receipts_root CHAR(66),

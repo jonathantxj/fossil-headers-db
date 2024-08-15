@@ -99,10 +99,10 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
     let result = sqlx::query(
         r#"
         INSERT INTO blockheaders (
-            block_hash, number, gas_limit, gas_used, nonce,
-            transaction_root, receipts_root, state_root
+            block_hash, number, gas_limit, gas_used, base_fee_per_gas,
+            nonce, transaction_root, receipts_root, state_root
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (number) DO NOTHING
         "#,
     )
@@ -110,6 +110,7 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
     .bind(convert_hex_string_to_i64(&block_header.number))
     .bind(convert_hex_string_to_i64(&block_header.gas_limit))
     .bind(convert_hex_string_to_i64(&block_header.gas_used))
+    .bind(&block_header.base_fee_per_gas)
     .bind(&block_header.nonce)
     .bind(&block_header.transactions_root)
     .bind(&block_header.receipts_root)
@@ -135,9 +136,9 @@ pub async fn write_blockheader(block_header: BlockHeaderWithFullTransaction) -> 
     if !block_header.transactions.is_empty() {
         let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO transactions (
-                block_number, transaction_hash,
-                transaction_index, from_addr, to_addr, value, gas_price, max_priority_fee_per_gas, 
-                max_fee_per_gas, gas, chain_id
+                block_number, transaction_hash, transaction_index,
+                from_addr, to_addr, value, gas_price,
+                max_priority_fee_per_gas, max_fee_per_gas, gas, chain_id
             ) ",
         );
 

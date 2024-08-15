@@ -34,6 +34,8 @@ pub struct BlockHeaderWithEmptyTransaction {
     pub gas_limit: String,
     #[serde(rename(deserialize = "gasUsed"))]
     pub gas_used: String,
+    #[serde(rename(deserialize = "baseFeePerGas"))]
+    pub base_fee_per_gas: Option<String>,
     pub hash: String,
     pub nonce: Option<String>,
     pub number: String,
@@ -51,6 +53,8 @@ pub struct BlockHeaderWithFullTransaction {
     pub gas_limit: String,
     #[serde(rename(deserialize = "gasUsed"))]
     pub gas_used: String,
+    #[serde(rename(deserialize = "baseFeePerGas"))]
+    pub base_fee_per_gas: Option<String>,
     pub hash: String,
     pub nonce: Option<String>,
     pub number: String,
