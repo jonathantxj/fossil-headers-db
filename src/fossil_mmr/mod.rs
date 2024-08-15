@@ -54,7 +54,6 @@ async fn get_mmr() -> Result<Arc<Mutex<MMR>>> {
     }
 }
 
-
 pub async fn update_mmr(should_terminate: &AtomicBool) -> Result<()> {
     for _ in 0..MAX_RETRIES {
         if IS_UPDATING.load(Ordering::Relaxed) {
@@ -103,7 +102,6 @@ async fn get_last_added_blocknumber() -> Result<i64> {
     };
     element_count_to_blocknumber(element_count)
 }
-
 
 async fn update_mmr_chunk(start_block: i64, should_terminate: &AtomicBool) -> Result<()> {
     for _ in 0..MAX_RETRIES {
