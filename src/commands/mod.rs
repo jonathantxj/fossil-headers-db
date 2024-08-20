@@ -124,7 +124,7 @@ async fn chain_update_blocks(
             break;
         }
 
-        update_blocks(range_start, range_start + 1, size, should_terminate).await?;
+        update_blocks(range_start, last_block, size, should_terminate).await?;
         fossil_mmr::update_mmr(should_terminate).await?;
 
         loop {
